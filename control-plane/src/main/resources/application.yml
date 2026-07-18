@@ -1,0 +1,13 @@
+spring:
+  application:
+    name: loop-engine-control-plane
+  datasource:
+    url: ${LOOP_DB_URL:jdbc:postgresql://localhost:5432/loop_engine}
+    username: ${LOOP_DB_USER:loop_engine}
+    password: ${LOOP_DB_PASSWORD:loop_engine}
+  flyway:
+    enabled: true
+management:
+  endpoints.web.exposure.include: health,info,prometheus
+server:
+  shutdown: graceful
