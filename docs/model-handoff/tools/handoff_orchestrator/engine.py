@@ -74,6 +74,8 @@ class Orchestrator:
         self.log("INFO", f"on {branch} base={self.ctx.base_commit[:12]}")
 
     def generate_and_commit_prompt(self) -> str:
+        if not self.ctx.current_task_id:
+            raise RuntimeError("no current task")
         require_clean(self.ctx.paths.repo_root)
         result = run_new_model_task_prompt(
             self.ctx.paths.prompt_ps1,
@@ -103,6 +105,8 @@ class Orchestrator:
         self.ctx.step = Step.WAIT_REVIEW
 
     def generate_review_prompt(self) -> str:
+        if not self.ctx.current_task_id:
+            raise RuntimeError("no current task")
         if not self.ctx.base_commit:
             raise RuntimeError("base_commit not set")
         if not self.ctx.result_commit:
@@ -119,6 +123,8 @@ class Orchestrator:
 
     def accept_and_advance(self) -> str | None:
         """Returns next task id or None if finished."""
+        if not self.ctx.current_task_id:
+            raise RuntimeError("no current task")
         repo = self.ctx.paths.repo_root
         task_id = self.ctx.current_task_id
         branch = f"task/{task_id}"
@@ -153,6 +159,8 @@ class Orchestrator:
         return next_id
 
     def mark_rework(self) -> None:
+        if not self.ctx.current_task_id:
+            raise RuntimeError("no current task")
         repo = self.ctx.paths.repo_root
         task_id = self.ctx.current_task_id
         text = self.ctx.paths.index_md.read_text(encoding="utf-8")
@@ -163,6 +171,8 @@ class Orchestrator:
         self.ctx.step = Step.PROMPT_READY
 
     def mark_blocked(self) -> None:
+        if not self.ctx.current_task_id:
+            raise RuntimeError("no current task")
         repo = self.ctx.paths.repo_root
         task_id = self.ctx.current_task_id
         text = self.ctx.paths.index_md.read_text(encoding="utf-8")
@@ -171,3 +181,6 @@ class Orchestrator:
         rel = self.ctx.paths.index_md.relative_to(repo).as_posix()
         commit_paths(repo, [rel], f"chore(handoff): block {task_id}")
         self.ctx.step = Step.IDLE
+        self.ctx.current_task_id = None
+        self.ctx.base_commit = None
+        self.ctx.result_commit = None
