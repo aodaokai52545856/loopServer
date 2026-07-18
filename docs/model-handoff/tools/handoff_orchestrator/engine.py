@@ -63,13 +63,14 @@ class Orchestrator:
         require_clean(repo)
         switch_branch(repo, self.ctx.main_branch, create=False)
         require_clean(repo)
+        # Base is always main tip at prepare time (not task-branch HEAD after prior commits).
+        self.ctx.base_commit = rev_parse(repo, "HEAD")
         branch = f"task/{task_id}"
         if current_branch(repo) != branch:
             if branch_exists(repo, branch):
                 switch_branch(repo, branch, create=False)
             else:
                 switch_branch(repo, branch, create=True)
-        self.ctx.base_commit = rev_parse(repo, "HEAD")
         self.ctx.step = Step.PROMPT_READY
         self.log("INFO", f"on {branch} base={self.ctx.base_commit[:12]}")
 
