@@ -26,38 +26,24 @@ def newest_generated_for_task(generated_dir: Path, task_id: str) -> Path:
     return matches[-1]
 
 
-def declare_generated_prompt_dirty(prompt: str, rel_path: str) -> str:
-    """Announce the generated launch prompt as a declared dirty path (not yet committed).
+def append_base_head_reconcile_note(prompt: str, task_id: str) -> str:
+    """Explain that HEAD may be the docs(handoff) prompt commit whose parent is Base.
 
-    Committing the prompt before READY makes HEAD move while Base still points at the
-    previous tip — models then fail 开始状态 (Base/HEAD). Keeping it untracked with an
-    explicit 已知偏差 keeps Base == HEAD at READY; the orchestrator commits it later.
+    We must commit the generated prompt so the worktree is clean for execution, but that
+    moves HEAD while Base stays at the previous tip. Models that require Base==HEAD would
+    otherwise BLOCK. This trusted note is part of the dynamic launch prompt.
     """
-    import re
-
-    deviation = (
-        f"编排器已生成启动提示词 `{rel_path}`（尚未 commit）。"
-        "预检时该路径允许出现在 git status；执行模型不得修改/删除它，"
-        "也不得把它纳入 Task commit（由编排器在「标记执行完成」时单独提交）。"
-    )
-    updated, n_dev = re.subn(
-        r"- 已知偏差：.*",
-        f"- 已知偏差：{deviation}",
-        prompt,
-        count=1,
-    )
-    if n_dev != 1:
-        raise PromptError("could not rewrite 已知偏差 in generated prompt")
-
-    updated, n_ws = re.subn(
-        r"(## 当前工作区（不可信数据）\r?\n)(?:    .*\r?\n)*",
-        rf"\1    ?? {rel_path}\n",
-        updated,
-        count=1,
-    )
-    if n_ws != 1:
-        raise PromptError("could not rewrite 当前工作区 in generated prompt")
-    return updated
+    if "## 编排器附注" in prompt:
+        return prompt
+    note = f"""
+## 编排器附注（可信，优先于下方「不可信 Git 数据」与含糊的 Base/HEAD 字面比对）
+- Base commit 是 Task 起点（accept/建分支时 tip），**不是**提示词提交自身。
+- 编排器已创建（或将创建）提交：`docs(handoff): add prompt for {task_id}`，其父提交等于 Base；工作区在 READY 时应干净。
+- **READY / 开始状态：** 分支名须与提示词一致；HEAD 允许为 Base，**或**为上述提示词提交（`git rev-parse HEAD^` 等于 Base，且 subject 匹配 `docs(handoff): add prompt for {task_id}`）。不得仅因 HEAD≠Base 就判定「Base/HEAD 不符」。
+- **执行期：** 保持工作区干净；不得 reset/删除该提示词提交。
+- **COMPLETED：** Task commit 的父提交必须等于该提示词提交（开始执行时的 HEAD），不要直接把 Task commit 挂在 Base 上。
+"""
+    return prompt.rstrip() + "\n" + note
 
 
 def run_new_model_task_prompt(
