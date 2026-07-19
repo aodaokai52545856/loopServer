@@ -11,3 +11,4 @@ management:
   endpoints.web.exposure.include: health,info,prometheus
 server:
   shutdown: graceful
+loop.gitlab.webhook.token: ${LOOP_GITLAB_WEBHOOK_TOKEN}
