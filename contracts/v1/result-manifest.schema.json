@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loop-engine.internal/contracts/v1/result-manifest.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "taskId", "attemptId", "nodeId", "baseSha", "patchSha256", "patchBytes", "changedFiles", "validationResults", "eventLog", "startedAt", "finishedAt", "outcome"],
+  "properties": {
+    "protocol": {"const": "v1"},
+    "taskId": {"type": "string", "format": "uuid"},
+    "attemptId": {"type": "string", "format": "uuid"},
+    "nodeId": {"type": "string", "format": "uuid"},
+    "baseSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "patchSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "patchBytes": {"type": "integer", "minimum": 1},
+    "changedFiles": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "status"],
+        "properties": {
+          "path": {"type": "string", "minLength": 1},
+          "status": {"enum": ["added", "modified", "deleted", "renamed"]}
+        }
+      }
+    },
+    "validationResults": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["program", "args", "exitCode", "durationMs"],
+        "properties": {
+          "program": {"type": "string", "minLength": 1},
+          "args": {"type": "array", "items": {"type": "string"}},
+          "exitCode": {"type": "integer"},
+          "durationMs": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "eventLog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256", "lastSeq"],
+      "properties": {
+        "path": {"const": "events.jsonl"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "lastSeq": {"type": "integer", "minimum": 1}
+      }
+    },
+    "startedAt": {"type": "string", "format": "date-time"},
+    "finishedAt": {"type": "string", "format": "date-time"},
+    "outcome": {"enum": ["SUCCEEDED", "FAILED", "CANCELLED"]}
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loop-engine.internal/contracts/v1/task-event.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["taskId", "attemptId", "nodeId", "seq", "time", "type", "payload"],
+  "properties": {
+    "taskId": {"type": "string", "minLength": 1},
+    "attemptId": {"type": "string", "minLength": 1},
+    "nodeId": {"type": "string", "minLength": 1},
+    "seq": {"type": "integer", "minimum": 1},
+    "time": {"type": "string", "format": "date-time"},
+    "type": {"type": "string", "pattern": "^[a-z]+([.-][a-z]+)+$"},
+    "payload": {"type": "object"}
+  }
+}

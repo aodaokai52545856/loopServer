@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loop-engine.internal/contracts/v1/task-package.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol", "taskId", "attemptId", "nodeId", "project", "baseSha", "issue", "validation", "callback"],
+  "properties": {
+    "protocol": {"const": "v1"},
+    "taskId": {"type": "string", "format": "uuid"},
+    "attemptId": {"type": "string", "format": "uuid"},
+    "nodeId": {"type": "string", "format": "uuid"},
+    "baseSha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "repositoryUrl", "module", "targetBranch", "profileRevision"],
+      "properties": {
+        "key": {"type": "string", "minLength": 1},
+        "repositoryUrl": {"type": "string", "format": "uri"},
+        "module": {"type": "string", "minLength": 1},
+        "targetBranch": {"type": "string", "minLength": 1},
+        "profileRevision": {"type": "integer", "minimum": 1}
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projectId", "iid", "url", "title", "description", "attachments"],
+      "properties": {
+        "projectId": {"type": "integer", "minimum": 1},
+        "iid": {"type": "integer", "minimum": 1},
+        "url": {"type": "string", "format": "uri"},
+        "title": {"type": "string", "minLength": 1},
+        "description": {"type": "string"},
+        "attachments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "contentType", "url", "sha256"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "contentType": {"type": "string", "minLength": 1},
+              "url": {"type": "string", "format": "uri"},
+              "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+            }
+          }
+        }
+      }
+    },
+    "validation": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["program", "args", "timeoutSeconds", "required"],
+        "properties": {
+          "program": {"type": "string", "minLength": 1},
+          "args": {"type": "array", "items": {"type": "string"}},
+          "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 7200},
+          "required": {"type": "boolean"}
+        }
+      }
+    },
+    "callback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseUrl", "eventsPath"],
+      "properties": {
+        "baseUrl": {"type": "string", "format": "uri"},
+        "eventsPath": {"type": "string", "pattern": "^/api/node/v1/attempts/"}
+      }
+    }
+  }
+}
