@@ -106,7 +106,9 @@ git switch -c task/LE-P01-T03
 4. 工作区不干净时不要点「准备分支 / ACCEPTED」。  
 5. 复核必须在**新会话**、只读；只有 ACCEPTED 才合并。  
 6. 生成提示词成功后，**必须**把 `generated/*.md` 提交到任务分支（GUI 的 ② 已自动做）。  
-7. 报错 `worktree not clean` **不是**要删 `.worktrees` 目录，而是工作区有未提交/未跟踪文件。常见是 `__pycache__`（已在 `.gitignore` 忽略）；用 `git status --short` 看清再处理。
+7. 报错 `worktree not clean` **不是**要删 `.worktrees` 目录，而是工作区有未提交/未跟踪文件。常见是 `__pycache__` / `*.log`（已忽略）；工具也会自动忽略自己的 logs 与 pycache。  
+8. 生成提示词后会弹出**可换行文本窗口**（并尝试复制剪贴板）；请从该窗口粘贴到 OpenCode，不要从乱码日志里抠。  
+9. 请在 **main** 上启动 GUI（加载最新工具代码）；点「准备分支」会切到 `task/...`。改完工具后需**重启**编排器进程。
 
 ---
 
