@@ -295,6 +295,11 @@ public class NodeHeartbeatService {
         if (!node.enabled()) {
             return "DISABLED";
         }
+        // Enrollment / Runner-provision pipeline states are not health states.
+        // Keep them until Task 6 (or later) advances the node out of the pipeline.
+        if (PENDING_CONFIRMATION.equals(node.state()) || PENDING_RUNNER.equals(node.state())) {
+            return node.state();
+        }
         if (node.config() != null && node.config().drain()) {
             return "DRAINING";
         }

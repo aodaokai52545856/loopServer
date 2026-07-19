@@ -114,6 +114,8 @@ class NodeHeartbeatServiceTest {
     @Test
     void fortySixSecondsWithoutHeartbeatBecomesOffline() {
         UUID node = enrolledAndConfirmedNode(2);
+        // Health sweeping only applies after leaving the enrollment/provision pipeline.
+        promoteOutOfProvisionPipeline(node);
         service.heartbeat(node, heartbeat(2, 0));
         assertThat(nodes.get(node).state()).isEqualTo("ONLINE");
 
@@ -122,12 +124,42 @@ class NodeHeartbeatServiceTest {
         assertThat(nodes.get(node).state()).isEqualTo("OFFLINE");
     }
 
+    @Test
+    void sweepDoesNotMovePendingRunnerToOfflineWithoutHeartbeat() {
+        UUID node = enrolledAndConfirmedNode(2);
+        assertThat(nodes.get(node).state()).isEqualTo("PENDING_RUNNER");
+
+        now.set(FIXED_NOW.plus(Duration.ofSeconds(46)));
+        service.sweepNodeStates();
+
+        assertThat(nodes.get(node).state()).isEqualTo("PENDING_RUNNER");
+    }
+
+    @Test
+    void heartbeatKeepsPendingRunnerUntilProvisioned() {
+        UUID node = enrolledAndConfirmedNode(2);
+        service.heartbeat(node, heartbeat(2, 0));
+        assertThat(nodes.get(node).state()).isEqualTo("PENDING_RUNNER");
+        assertThat(nodes.get(node).lastHeartbeatAt()).isEqualTo(FIXED_NOW);
+    }
+
     private UUID enrolledAndConfirmedNode(int concurrency) {
         UUID nodeId = insertPendingNode("dev-laptop", Set.of("backend-a"), concurrency);
         service.confirm(
             nodeId,
             new ConfirmRequest(Set.of("backend-a"), Map.of("os", "linux", "arch", "amd64")));
         return nodeId;
+    }
+
+    private void promoteOutOfProvisionPipeline(UUID nodeId) {
+        jdbc.sql("""
+            update repair_node
+            set state = 'ONLINE', updated_at = :updatedAt
+            where id = :id
+            """)
+            .param("updatedAt", java.sql.Timestamp.from(clock.instant()))
+            .param("id", nodeId)
+            .update();
     }
 
     private UUID insertPendingNode(String name, Set<String> projects, int concurrency) {
