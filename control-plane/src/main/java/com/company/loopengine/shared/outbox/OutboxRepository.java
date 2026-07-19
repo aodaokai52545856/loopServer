@@ -2,19 +2,13 @@ package com.company.loopengine.shared.outbox;
 
 import java.sql.Timestamp;
 import java.util.List;
-import javax.sql.DataSource;
-import org.flywaydb.core.Flyway;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
 @Repository
 public class OutboxRepository {
     private final JdbcClient jdbc;
-
-    public OutboxRepository(JdbcClient jdbc, DataSource dataSource) {
-        this.jdbc = jdbc;
-        Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load().migrate();
-    }
+    public OutboxRepository(JdbcClient jdbc) { this.jdbc = jdbc; }
 
     public void append(OutboxEvent event) {
         jdbc.sql("""
