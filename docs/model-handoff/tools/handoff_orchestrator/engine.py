@@ -7,8 +7,10 @@ from handoff_orchestrator.git_ops import (
     delete_branch,
     log_oneline,
     merge_ff_only,
+    parse_status_paths,
     require_clean,
     rev_parse,
+    status_short,
     switch_branch,
 )
 from handoff_orchestrator.index_ops import (
@@ -21,6 +23,7 @@ from handoff_orchestrator.index_ops import (
 from handoff_orchestrator.logutil import LogFn
 from handoff_orchestrator.models import SessionContext, Step
 from handoff_orchestrator.prompt_ops import (
+    declare_generated_prompt_dirty,
     fill_review_prompt,
     newest_generated_for_task,
     run_new_model_task_prompt,
@@ -75,8 +78,24 @@ class Orchestrator:
         self.log("INFO", f"on {branch} base={self.ctx.base_commit[:12]}")
 
     def generate_and_commit_prompt(self) -> str:
+        """Generate launch prompt; keep file untracked until mark_exec_done.
+
+        Committing the prompt before READY moves HEAD while Base still names the old
+        tip, which triggers 开始状态 Base/HEAD mismatches. Instead we declare the
+        generated path as 已知偏差 and commit it after the Task commit exists.
+        """
         if not self.ctx.current_task_id:
             raise RuntimeError("no current task")
+        allowed = []
+        if self.ctx.pending_generated_rel:
+            allowed.append(self.ctx.pending_generated_rel)
+        # Drop prior generated prompts for this task so PS1 sees a clean tree.
+        for old in self.ctx.paths.generated_dir.glob(f"{self.ctx.current_task_id}-*.md"):
+            try:
+                old.unlink()
+            except OSError as exc:
+                self.log("WARN", f"could not remove {old.name}: {exc}")
+        self.ctx.pending_generated_rel = None
         require_clean(self.ctx.paths.repo_root)
         run_new_model_task_prompt(
             self.ctx.paths.prompt_ps1,
@@ -86,24 +105,42 @@ class Orchestrator:
             allow_commit=True,
         )
         gen = newest_generated_for_task(self.ctx.paths.generated_dir, self.ctx.current_task_id)
-        # Prefer the UTF-8 file written by the PS1 (stdout may be OEM-encoded on Windows).
         prompt = gen.read_text(encoding="utf-8-sig")
         rel = gen.relative_to(self.ctx.paths.repo_root).as_posix()
-        commit_paths(
-            self.ctx.paths.repo_root,
-            [rel],
-            f"docs(handoff): add prompt for {self.ctx.current_task_id}",
+        prompt = declare_generated_prompt_dirty(prompt, rel)
+        gen.write_text(prompt, encoding="utf-8", newline="\n")
+        self.ctx.pending_generated_rel = rel
+        head = rev_parse(self.ctx.paths.repo_root, "HEAD")
+        self.log(
+            "INFO",
+            f"prompt ready (not committed): {rel}; Base/HEAD={head[:12]}; "
+            f"declared dirty for READY. Opening copy dialog.",
         )
-        self.log("INFO", f"prompt saved: {rel} ({len(prompt)} chars). Opening copy dialog.")
         self.ctx.last_prompt_text = prompt
         self.ctx.step = Step.WAIT_EXEC
         return prompt
 
     def mark_exec_done(self, result_commit: str | None = None) -> None:
+        repo = self.ctx.paths.repo_root
         if result_commit is not None:
             self.ctx.result_commit = result_commit
         else:
-            self.ctx.result_commit = rev_parse(self.ctx.paths.repo_root, "HEAD")
+            self.ctx.result_commit = rev_parse(repo, "HEAD")
+
+        # Commit the launch prompt after the Task commit so READY saw Base==HEAD.
+        rel = self.ctx.pending_generated_rel
+        if rel:
+            path = repo / rel
+            if path.is_file() and rel in parse_status_paths(status_short(repo)):
+                commit_paths(
+                    repo,
+                    [rel],
+                    f"docs(handoff): add prompt for {self.ctx.current_task_id}",
+                )
+                self.log("INFO", f"committed deferred prompt: {rel}")
+            elif path.is_file():
+                self.log("INFO", f"prompt already tracked: {rel}")
+            self.ctx.pending_generated_rel = None
         self.ctx.step = Step.WAIT_REVIEW
 
     def generate_review_prompt(self) -> str:

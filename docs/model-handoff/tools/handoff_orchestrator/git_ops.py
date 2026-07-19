@@ -76,9 +76,12 @@ def status_short(repo: Path) -> str:
     return run_git(repo, ["-c", "core.quotepath=false", "status", "--short", "--untracked-files=all"]).stdout
 
 
-def require_clean(repo: Path) -> None:
+def require_clean(repo: Path, allowed_paths: list[str] | None = None) -> None:
     text = status_short(repo)
     dirty = meaningful_dirty_paths(text)
+    if allowed_paths:
+        allowed = {p.replace("\\", "/") for p in allowed_paths}
+        dirty = [p for p in dirty if p.replace("\\", "/") not in allowed]
     if dirty:
         raise GitError("worktree not clean:\n" + "\n".join(dirty))
 
@@ -113,6 +116,12 @@ def delete_branch(repo: Path, branch: str) -> CmdResult:
 def commit_paths(repo: Path, paths: list[str], message: str) -> CmdResult:
     run_git(repo, ["add", "--", *paths])
     return run_git(repo, ["commit", "-m", message])
+
+
+def amend_paths(repo: Path, paths: list[str]) -> CmdResult:
+    """Amend HEAD with updated paths (local task branches only; do not use after push)."""
+    run_git(repo, ["add", "--", *paths])
+    return run_git(repo, ["commit", "--amend", "--no-edit"])
 
 
 def log_oneline(repo: Path, range_expr: str) -> str:

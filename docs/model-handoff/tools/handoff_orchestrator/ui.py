@@ -80,7 +80,7 @@ class HandoffUI:
         self._action_buttons["prepare"].pack(side=tk.LEFT, padx=4, pady=2)
         self._action_buttons["generate_prompt"] = tk.Button(
             row1,
-            text="② 生成提示词并提交 generated",
+            text="② 生成提示词（先不 commit）",
             command=self._on_generate_prompt,
         )
         self._action_buttons["generate_prompt"].pack(side=tk.LEFT, padx=4, pady=2)

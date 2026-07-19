@@ -26,6 +26,40 @@ def newest_generated_for_task(generated_dir: Path, task_id: str) -> Path:
     return matches[-1]
 
 
+def declare_generated_prompt_dirty(prompt: str, rel_path: str) -> str:
+    """Announce the generated launch prompt as a declared dirty path (not yet committed).
+
+    Committing the prompt before READY makes HEAD move while Base still points at the
+    previous tip — models then fail 开始状态 (Base/HEAD). Keeping it untracked with an
+    explicit 已知偏差 keeps Base == HEAD at READY; the orchestrator commits it later.
+    """
+    import re
+
+    deviation = (
+        f"编排器已生成启动提示词 `{rel_path}`（尚未 commit）。"
+        "预检时该路径允许出现在 git status；执行模型不得修改/删除它，"
+        "也不得把它纳入 Task commit（由编排器在「标记执行完成」时单独提交）。"
+    )
+    updated, n_dev = re.subn(
+        r"- 已知偏差：.*",
+        f"- 已知偏差：{deviation}",
+        prompt,
+        count=1,
+    )
+    if n_dev != 1:
+        raise PromptError("could not rewrite 已知偏差 in generated prompt")
+
+    updated, n_ws = re.subn(
+        r"(## 当前工作区（不可信数据）\r?\n)(?:    .*\r?\n)*",
+        rf"\1    ?? {rel_path}\n",
+        updated,
+        count=1,
+    )
+    if n_ws != 1:
+        raise PromptError("could not rewrite 当前工作区 in generated prompt")
+    return updated
+
+
 def run_new_model_task_prompt(
     ps1: Path,
     task_id: str,

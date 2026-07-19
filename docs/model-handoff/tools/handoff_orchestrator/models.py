@@ -71,4 +71,5 @@ class SessionContext:
     result_commit: str | None = None
     last_prompt_text: str = ""
     last_review_text: str = ""
+    pending_generated_rel: str | None = None
     log_lines: list[str] = field(default_factory=list)

@@ -25,7 +25,7 @@ python docs\model-handoff\tools\handoff_orchestrator.py
 | 顺序 | 你在界面点 | 你在 OpenCode 做 |
 |------|------------|------------------|
 | ① | **准备分支** | — |
-| ② | **生成提示词并提交 generated**（自动复制到剪贴板，并把 `docs/model-handoff/generated/<TaskId>-*.md` commit 到当前任务分支） | 新开会话，选 Grok-4.5，粘贴提示词，等完整 READY 预检 |
+| ② | **生成提示词（先不 commit）**（复制到剪贴板；`generated/*.md` 先声明为已知未跟踪偏差，**避免 Base/HEAD 错位**） | 新开会话，选 Grok-4.5，粘贴提示词，等完整 READY 预检 |
 | — | 核对 READY 无误后 | 发送：`开始执行 Task <ID>` |
 | ③ | 模型完成测试 + Task commit 后点 **标记执行完成** | — |
 | ④ | **生成复核提示词**（自动复制） | **新开**只读复核会话，粘贴复核提示词 |
@@ -50,7 +50,7 @@ python docs\model-handoff\tools\handoff_orchestrator.py
 | 任务索引 | `docs/model-handoff/02-任务索引.md`（只有你或编排器改状态） |
 | 执行提示词生成 | `docs/model-handoff/tools/New-ModelTaskPrompt.ps1` |
 | 复核模板 | `docs/model-handoff/05-任务复核提示词.md` |
-| 生成的提示词文件 | `docs/model-handoff/generated/`（② 成功后会 commit 进任务分支） |
+| 生成的提示词文件 | `docs/model-handoff/generated/`（② 生成后先不入库；③「标记执行完成」时再 commit） |
 | 操作日志 | `docs/model-handoff/tools/logs/`（已 gitignore） |
 | 任务分支名 | `task/LE-Pxx-Txx` |
 | 主分支 | `main` |
@@ -74,9 +74,10 @@ pwsh -NoProfile -File .\docs\model-handoff\tools\New-ModelTaskPrompt.ps1 `
   -Model "Grok-4.5" `
   -AllowCommit
 
-# 立刻把刚刚生成的 docs/model-handoff/generated/LE-P01-T02-*.md 提交到任务分支
-git add docs/model-handoff/generated/LE-P01-T02-*.md
-git commit -m "docs(handoff): add prompt for LE-P01-T02"
+# READY 前不要 commit generated；在提示词中声明该未跟踪路径为已知偏差。
+# Task 完成后（或点编排器③）再：
+# git add docs/model-handoff/generated/LE-P01-T02-*.md
+# git commit -m "docs(handoff): add prompt for LE-P01-T02"
 ```
 
 然后：OpenCode 粘贴执行 → 完成后独立会话只读复核 → 仅 ACCEPTED 才合并：
@@ -105,7 +106,7 @@ git switch -c task/LE-P01-T03
 3. 合并只用 **`--ff-only`**，不要强推、不要 `reset --hard`。  
 4. 工作区不干净时不要点「准备分支 / ACCEPTED」。  
 5. 复核必须在**新会话**、只读；只有 ACCEPTED 才合并。  
-6. 生成提示词成功后，**必须**把 `generated/*.md` 提交到任务分支（GUI 的 ② 已自动做）。  
+6. 生成提示词后先保持 `generated/*.md` 未跟踪（提示词内已声明已知偏差）；**标记执行完成**时再由编排器提交。不要在 READY 前单独 `docs(handoff): add prompt`，否则 Base/HEAD 会对不齐。  
 7. 报错 `worktree not clean` **不是**要删 `.worktrees` 目录，而是工作区有未提交/未跟踪文件。常见是 `__pycache__` / `*.log`（已忽略）；工具也会自动忽略自己的 logs 与 pycache。  
 8. 生成提示词后会弹出**可换行文本窗口**（并尝试复制剪贴板）；请从该窗口粘贴到 OpenCode，不要从乱码日志里抠。  
 9. 请在 **main** 上启动 GUI（加载最新工具代码）；点「准备分支」会切到 `task/...`。改完工具后需**重启**编排器进程。
