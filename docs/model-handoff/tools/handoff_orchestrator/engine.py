@@ -5,7 +5,9 @@ from handoff_orchestrator.git_ops import (
     commit_paths,
     current_branch,
     delete_branch,
+    is_ancestor,
     log_oneline,
+    merge_branch,
     merge_ff_only,
     require_clean,
     rev_parse,
@@ -113,19 +115,30 @@ class Orchestrator:
         return prompt
 
     def mark_exec_done(self, result_commit: str | None = None) -> None:
+        repo = self.ctx.paths.repo_root
         if result_commit is not None:
-            self.ctx.result_commit = result_commit
+            self.ctx.result_commit = result_commit.strip()
         else:
-            self.ctx.result_commit = rev_parse(self.ctx.paths.repo_root, "HEAD")
+            self.ctx.result_commit = rev_parse(repo, "HEAD")
+        # Review Base must be the Task commit's parent (usually docs(handoff) prompt),
+        # not whatever main tip happens to be after unrelated orchestrator commits.
+        self.ctx.base_commit = rev_parse(repo, f"{self.ctx.result_commit}^")
+        self.log(
+            "INFO",
+            f"review anchors: base={self.ctx.base_commit[:12]} "
+            f"result={self.ctx.result_commit[:12]}",
+        )
         self.ctx.step = Step.WAIT_REVIEW
 
     def generate_review_prompt(self) -> str:
         if not self.ctx.current_task_id:
             raise RuntimeError("no current task")
-        if not self.ctx.base_commit:
-            raise RuntimeError("base_commit not set")
         if not self.ctx.result_commit:
             raise RuntimeError("result_commit not set")
+        if not self.ctx.base_commit:
+            self.ctx.base_commit = rev_parse(
+                self.ctx.paths.repo_root, f"{self.ctx.result_commit}^"
+            )
         template = self.ctx.paths.review_template.read_text(encoding="utf-8")
         text = fill_review_prompt(
             template,
@@ -134,6 +147,11 @@ class Orchestrator:
             self.ctx.base_commit,
         )
         self.ctx.last_review_text = text
+        self.log(
+            "INFO",
+            f"review prompt: Task={self.ctx.current_task_id} "
+            f"commit={self.ctx.result_commit[:12]} base={self.ctx.base_commit[:12]}",
+        )
         return text
 
     def accept_and_advance(self) -> str | None:
@@ -146,6 +164,20 @@ class Orchestrator:
         require_clean(repo)
         log_range = log_oneline(repo, f"{self.ctx.main_branch}..{branch}")
         self.log("INFO", f"commits to merge:\n{log_range or '(none)'}")
+        # If main moved ahead with tooling commits, absorb it first so ff-only works.
+        if not is_ancestor(repo, self.ctx.main_branch, branch):
+            self.log(
+                "WARN",
+                f"{self.ctx.main_branch} is not an ancestor of {branch}; "
+                f"merging {self.ctx.main_branch} into {branch} before ff-only accept",
+            )
+            switch_branch(repo, branch, create=False)
+            merge_branch(
+                repo,
+                self.ctx.main_branch,
+                f"merge {self.ctx.main_branch} into {branch} before accept",
+            )
+            require_clean(repo)
         switch_branch(repo, self.ctx.main_branch)
         merge_ff_only(repo, branch)
         text = self.ctx.paths.index_md.read_text(encoding="utf-8")

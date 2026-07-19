@@ -109,6 +109,19 @@ def merge_ff_only(repo: Path, branch: str) -> CmdResult:
     return run_git(repo, ["merge", "--ff-only", branch])
 
 
+def is_ancestor(repo: Path, maybe_ancestor: str, maybe_descendant: str) -> bool:
+    r = run_git(
+        repo,
+        ["merge-base", "--is-ancestor", maybe_ancestor, maybe_descendant],
+        check=False,
+    )
+    return r.returncode == 0
+
+
+def merge_branch(repo: Path, branch: str, message: str) -> CmdResult:
+    return run_git(repo, ["merge", branch, "-m", message])
+
+
 def delete_branch(repo: Path, branch: str) -> CmdResult:
     return run_git(repo, ["branch", "-d", branch])
 
