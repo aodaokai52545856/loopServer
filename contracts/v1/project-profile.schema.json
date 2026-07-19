@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://loop-engine.internal/contracts/v1/project-profile.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "repository",
+    "defaultBranch",
+    "modules",
+    "contextPaths",
+    "validationCommands",
+    "allowedOs",
+    "allowedNodeIds",
+    "allowedNodeOwnerIds",
+    "requiredTools",
+    "forbiddenPaths",
+    "maxChangedFiles",
+    "maxPatchBytes",
+    "maxRepairRounds",
+    "maxExternalAttempts",
+    "retryFunctionalFailure",
+    "targetBranch",
+    "branchPrefix",
+    "reviewers"
+  ],
+  "properties": {
+    "repository": {"type": "string", "minLength": 1},
+    "defaultBranch": {"type": "string", "minLength": 1},
+    "modules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^(?!/)(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$))(?!.*\\u0000).+$"
+      }
+    },
+    "contextPaths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^(?!/)(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$))(?!.*\\u0000).+$"
+      }
+    },
+    "validationCommands": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["program", "args", "timeoutSeconds"],
+        "properties": {
+          "program": {"type": "string", "minLength": 1},
+          "args": {"type": "array", "items": {"type": "string"}},
+          "timeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 7200}
+        }
+      }
+    },
+    "allowedOs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "enum": ["linux", "darwin", "windows"]}
+    },
+    "allowedNodeIds": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "allowedNodeOwnerIds": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    },
+    "requiredTools": {
+      "type": "object",
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "forbiddenPaths": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^(?!/)(?!.*(?:^|[/\\\\])\\.\\.(?:[/\\\\]|$))(?!.*\\u0000).+$"
+      }
+    },
+    "maxChangedFiles": {"type": "integer", "minimum": 1},
+    "maxPatchBytes": {"type": "integer", "minimum": 1},
+    "maxRepairRounds": {"type": "integer", "minimum": 0, "maximum": 2},
+    "maxExternalAttempts": {"type": "integer", "minimum": 1},
+    "retryFunctionalFailure": {"type": "boolean"},
+    "targetBranch": {"type": "string", "minLength": 1},
+    "branchPrefix": {"type": "string", "minLength": 1},
+    "reviewers": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}
