@@ -1,3 +1,12 @@
+server:
+  shutdown: graceful
+  ssl:
+    enabled: ${LOOP_TLS_ENABLED:false}
+    client-auth: want
+    key-store: ${LOOP_TLS_KEYSTORE:}
+    key-store-password: ${LOOP_TLS_KEYSTORE_PASSWORD:}
+    trust-store: ${LOOP_DEVICE_CA_TRUSTSTORE:}
+    trust-store-password: ${LOOP_DEVICE_CA_TRUSTSTORE_PASSWORD:}
 spring:
   application:
     name: loop-engine-control-plane
@@ -9,6 +18,4 @@ spring:
     enabled: true
 management:
   endpoints.web.exposure.include: health,info,prometheus
-server:
-  shutdown: graceful
 loop.gitlab.webhook.token: ${LOOP_GITLAB_WEBHOOK_TOKEN}
