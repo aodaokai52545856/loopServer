@@ -11,3 +11,17 @@ __pycache__/
 # Handoff orchestrator runtime logs
 *.log
 docs/model-handoff/tools/logs/
+target/
+dist/
+node_modules/
+.pnpm-store/
+.cache/
+.idea/
+.vscode/
+.env
+.env.*
+*.key
+*.pem
+node-runtime/workspaces/
+node-runtime/state/
+console-web/dist/

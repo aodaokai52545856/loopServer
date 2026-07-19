@@ -1,0 +1,64 @@
+stages: [test, build]
+
+java-test:
+  stage: test
+  image: maven:3.9.11-eclipse-temurin-21
+  services:
+    - name: docker:27-dind
+      command: ["--tls=false"]
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_TLS_CERTDIR: ""
+  cache:
+    key: maven
+    paths: [.m2/repository/]
+  script:
+    - mvn -B -Dmaven.repo.local=.m2/repository -pl control-plane test
+
+contract-test:
+  stage: test
+  image: maven:3.9.11-eclipse-temurin-21
+  cache:
+    key: maven
+    paths: [.m2/repository/]
+  script:
+    - mvn -B -Dmaven.repo.local=.m2/repository -pl control-plane -Dtest=ContractSchemaTest test
+
+web-test:
+  stage: test
+  image: node:24-bookworm
+  variables:
+    PNPM_STORE_DIR: .pnpm-store
+  cache:
+    key: pnpm
+    paths: [.pnpm-store/]
+  before_script:
+    - corepack enable
+    - pnpm --dir console-web install --frozen-lockfile
+  script:
+    - pnpm --dir console-web test
+
+go-test:
+  stage: test
+  image: golang:1.26
+  variables:
+    GOMODCACHE: $CI_PROJECT_DIR/.cache/go-mod
+  cache:
+    key: go
+    paths: [.cache/go-mod/]
+  script:
+    - go -C node-runtime test ./...
+
+web-build:
+  stage: build
+  image: node:24-bookworm
+  variables:
+    PNPM_STORE_DIR: .pnpm-store
+  before_script:
+    - corepack enable
+    - pnpm --dir console-web install --frozen-lockfile
+  script:
+    - pnpm --dir console-web build
+  artifacts:
+    paths: [console-web/dist/]
+    expire_in: 7 days

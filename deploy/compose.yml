@@ -1,0 +1,13 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: loop_engine
+      POSTGRES_USER: loop_engine
+      POSTGRES_PASSWORD: loop_engine
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U loop_engine"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
