@@ -7,3 +7,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
+
+# Handoff orchestrator runtime logs
+*.log
+docs/model-handoff/tools/logs/

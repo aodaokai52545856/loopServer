@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -32,20 +33,17 @@ def run_new_model_task_prompt(
     repo_root: Path,
     allow_commit: bool = True,
 ) -> CmdResult:
-    args = [
-        "pwsh",
-        "-NoProfile",
-        "-File",
-        str(ps1),
-        "-TaskId",
-        task_id,
-        "-Model",
-        model,
-        "-RepositoryRoot",
-        str(repo_root),
-    ]
-    if allow_commit:
-        args.append("-AllowCommit")
+    # Force UTF-8 pipeline so Chinese prompt text is not decoded as the OEM code page.
+    allow = " -AllowCommit" if allow_commit else ""
+    script = (
+        "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); "
+        "$OutputEncoding = [Console]::OutputEncoding; "
+        f"& '{ps1.as_posix()}' -TaskId '{task_id}' -Model '{model}' "
+        f"-RepositoryRoot '{repo_root}'{allow}"
+    )
+    args = ["pwsh", "-NoProfile", "-Command", script]
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
     proc = subprocess.run(
         args,
         capture_output=True,
@@ -53,6 +51,7 @@ def run_new_model_task_prompt(
         encoding="utf-8",
         errors="replace",
         cwd=str(repo_root),
+        env=env,
     )
     result = CmdResult(args, proc.returncode, proc.stdout, proc.stderr)
     if proc.returncode != 0:

@@ -200,21 +200,42 @@ class HandoffUI:
             button.configure(state=tk.NORMAL if actions.get(key, False) else tk.DISABLED)
 
     def _copy_or_show(self, text: str, label: str = "prompt") -> None:
+        """Always open a multi-line dialog for easy paste; also try clipboard."""
         try:
             copy_to_clipboard(text)
             self.orchestrator.log("INFO", f"copied {label} to clipboard")
+            clip_note = "已复制到剪贴板；也可在下方全选复制。"
         except Exception as exc:
             self.orchestrator.log("WARN", f"clipboard failed: {exc}")
-            self._show_text_dialog(text, f"Clipboard failed — copy {label}")
+            clip_note = f"剪贴板失败（{exc}）；请在下方全选复制。"
+        self._show_text_dialog(text, f"{label} — 粘贴到 OpenCode", clip_note)
 
-    def _show_text_dialog(self, text: str, title: str) -> None:
+    def _show_text_dialog(self, text: str, title: str, note: str = "") -> None:
         win = tk.Toplevel(self.root)
         win.title(title)
-        win.geometry("820x620")
-        box = scrolledtext.ScrolledText(win, wrap=tk.WORD)
+        win.geometry("900x680")
+        if note:
+            tk.Label(win, text=note, anchor="w", justify=tk.LEFT).pack(
+                fill=tk.X, padx=8, pady=(8, 0)
+            )
+        box = scrolledtext.ScrolledText(win, wrap=tk.WORD, font=("Consolas", 11))
         box.pack(fill=tk.BOTH, expand=True, padx=8, pady=8)
         box.insert("1.0", text)
         box.focus_set()
+
+        def _select_all_and_copy() -> None:
+            box.tag_add(tk.SEL, "1.0", tk.END)
+            try:
+                copy_to_clipboard(box.get("1.0", tk.END).rstrip("\n"))
+            except Exception:
+                self.root.clipboard_clear()
+                self.root.clipboard_append(box.get("1.0", tk.END).rstrip("\n"))
+                self.root.update()
+
+        btns = tk.Frame(win)
+        btns.pack(fill=tk.X, padx=8, pady=(0, 8))
+        tk.Button(btns, text="全选并复制", command=_select_all_and_copy).pack(side=tk.LEFT)
+        tk.Button(btns, text="关闭", command=win.destroy).pack(side=tk.RIGHT)
 
     def _on_refresh(self) -> None:
         try:

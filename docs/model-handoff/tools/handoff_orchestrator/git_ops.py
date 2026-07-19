@@ -50,8 +50,26 @@ def parse_status_paths(status_text: str) -> list[str]:
     return paths
 
 
+def _is_tool_noise_path(path: str) -> bool:
+    """Ignore orchestrator runtime artifacts that should not block handoff steps."""
+    norm = path.replace("\\", "/")
+    if norm.startswith("docs/model-handoff/tools/logs/") or "/logs/handoff-" in norm:
+        return True
+    if norm.endswith(".log"):
+        return True
+    if "__pycache__" in norm.split("/") or norm.endswith(".pyc"):
+        return True
+    if ".pytest_cache" in norm.split("/"):
+        return True
+    return False
+
+
+def meaningful_dirty_paths(status_text: str) -> list[str]:
+    return [p for p in parse_status_paths(status_text) if not _is_tool_noise_path(p)]
+
+
 def is_clean_status(status_text: str) -> bool:
-    return len(parse_status_paths(status_text)) == 0
+    return len(meaningful_dirty_paths(status_text)) == 0
 
 
 def status_short(repo: Path) -> str:
@@ -60,8 +78,9 @@ def status_short(repo: Path) -> str:
 
 def require_clean(repo: Path) -> None:
     text = status_short(repo)
-    if not is_clean_status(text):
-        raise GitError(f"worktree not clean:\n{text}")
+    dirty = meaningful_dirty_paths(text)
+    if dirty:
+        raise GitError("worktree not clean:\n" + "\n".join(dirty))
 
 
 def current_branch(repo: Path) -> str:

@@ -78,22 +78,23 @@ class Orchestrator:
         if not self.ctx.current_task_id:
             raise RuntimeError("no current task")
         require_clean(self.ctx.paths.repo_root)
-        result = run_new_model_task_prompt(
+        run_new_model_task_prompt(
             self.ctx.paths.prompt_ps1,
             self.ctx.current_task_id,
             self.ctx.model,
             self.ctx.paths.repo_root,
             allow_commit=True,
         )
-        self.log("INFO", result.stdout[-2000:] if result.stdout else "(no stdout)")
         gen = newest_generated_for_task(self.ctx.paths.generated_dir, self.ctx.current_task_id)
+        # Prefer the UTF-8 file written by the PS1 (stdout may be OEM-encoded on Windows).
+        prompt = gen.read_text(encoding="utf-8-sig")
         rel = gen.relative_to(self.ctx.paths.repo_root).as_posix()
         commit_paths(
             self.ctx.paths.repo_root,
             [rel],
             f"docs(handoff): add prompt for {self.ctx.current_task_id}",
         )
-        prompt = result.stdout.strip() or gen.read_text(encoding="utf-8")
+        self.log("INFO", f"prompt saved: {rel} ({len(prompt)} chars). Opening copy dialog.")
         self.ctx.last_prompt_text = prompt
         self.ctx.step = Step.WAIT_EXEC
         return prompt
