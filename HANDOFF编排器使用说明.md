@@ -105,7 +105,8 @@ git switch -c task/LE-P01-T03
 3. 合并只用 **`--ff-only`**，不要强推、不要 `reset --hard`。  
 4. 工作区不干净时不要点「准备分支 / ACCEPTED」。  
 5. 复核必须在**新会话**、只读；只有 ACCEPTED 才合并。  
-6. 生成提示词成功后，**必须**把 `generated/*.md` 提交到任务分支（GUI 的 ② 已自动做）。
+6. 生成提示词成功后，**必须**把 `generated/*.md` 提交到任务分支（GUI 的 ② 已自动做）。  
+7. 报错 `worktree not clean` **不是**要删 `.worktrees` 目录，而是工作区有未提交/未跟踪文件。常见是 `__pycache__`（已在 `.gitignore` 忽略）；用 `git status --short` 看清再处理。
 
 ---
 
