@@ -1,0 +1,16 @@
+stages: [repair]
+repair:
+  stage: repair
+  tags: ["$LOOP_RUNNER_TAG"]
+  timeout: 2h
+  interruptible: true
+  script:
+    - repair-executor run --server "$LOOP_CONTROL_PLANE_URL" --task "$LOOP_TASK_ID" --reservation "$LOOP_RESERVATION_ID"
+  artifacts:
+    when: always
+    expire_in: 14 days
+    paths:
+      - out/change.patch
+      - out/result-manifest.json
+      - out/events.jsonl
+      - out/test-results/
