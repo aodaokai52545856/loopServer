@@ -130,6 +130,37 @@ class PreparePublicationTest {
         assertThat(publication.changedFiles()).containsExactly("src/A.java");
     }
 
+    @Test
+    void askPassScriptSuppliesTokenFromEnvWithoutEmbeddingIt() throws Exception {
+        String token = "secret&token|with>meta`chars$()'\"\\;";
+        Path askPass = new GitProcess().writeAskPass(workRoot);
+        String scriptBody = Files.readString(askPass, StandardCharsets.UTF_8);
+        assertThat(scriptBody).startsWith("#!/bin/sh");
+        assertThat(scriptBody).contains(GitProcess.ASKPASS_TOKEN_ENV);
+        assertThat(scriptBody).doesNotContain(token);
+        assertThat(scriptBody).doesNotContain("secret");
+
+        ProcessBuilder pb = new ProcessBuilder(resolveSh(), askPass.toAbsolutePath().toString(), "Password for https://example:");
+        pb.environment().put(GitProcess.ASKPASS_TOKEN_ENV, token);
+        pb.redirectErrorStream(true);
+        Process process = pb.start();
+        String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertThat(process.waitFor(30, TimeUnit.SECONDS)).isTrue();
+        assertThat(process.exitValue()).isZero();
+        assertThat(output).isEqualTo(token + "\n");
+    }
+
+    @Test
+    void prepareDeletesAskPassImmediatelyAfterFetch() throws Exception {
+        Publication publication = preparer.prepare(task(baseSha), verifiedPatch("src/A.java"));
+        try (var stream = Files.list(publication.workTree())) {
+            assertThat(stream.filter(p -> {
+                String name = p.getFileName().toString();
+                return name.startsWith("askpass-") && name.endsWith(".sh");
+            }).toList()).isEmpty();
+        }
+    }
+
     private PublicationRequest task(String sha) {
         return new PublicationRequest(
             bareRemote.toAbsolutePath().toString(),
@@ -139,6 +170,27 @@ class PreparePublicationTest {
             40,
             1_048_576L,
             "unused-read-token");
+    }
+
+    private static String resolveSh() {
+        String pathEnv = System.getenv("PATH");
+        if (pathEnv != null) {
+            for (String dir : pathEnv.split(java.util.regex.Pattern.quote(java.io.File.pathSeparator))) {
+                Path candidate = Path.of(dir, "sh.exe");
+                if (Files.isRegularFile(candidate)) {
+                    return candidate.toString();
+                }
+                candidate = Path.of(dir, "sh");
+                if (Files.isRegularFile(candidate) || Files.isExecutable(candidate)) {
+                    return candidate.toString();
+                }
+            }
+        }
+        Path gitSh = Path.of("C:\\Program Files\\Git\\bin\\sh.exe");
+        if (Files.isRegularFile(gitSh)) {
+            return gitSh.toString();
+        }
+        return "sh";
     }
 
     private VerifiedPatchInput verifiedPatch(String path) {

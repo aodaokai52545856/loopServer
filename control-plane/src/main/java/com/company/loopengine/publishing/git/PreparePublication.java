@@ -47,12 +47,14 @@ public final class PreparePublication {
             git.run(repoDir, List.of("init", repoDir.toString()));
             git.run(repoDir, List.of("-C", repoDir.toString(), "remote", "add", "origin", request.targetUrl()));
 
-            askPass = git.writeAskPass(repoDir, request.readToken());
+            askPass = git.writeAskPass(repoDir);
             Map<String, String> fetchEnv = new LinkedHashMap<>();
             fetchEnv.put("GIT_ASKPASS", askPass.toAbsolutePath().toString());
             fetchEnv.put("GIT_TERMINAL_PROMPT", "0");
-            // Local path remotes ignore credentials; keep username helper for HTTPS remotes.
-            fetchEnv.put("GIT_USERNAME", "oauth2");
+            // Token stays in the fetch child environment only — never inside the askpass script.
+            fetchEnv.put(
+                GitProcess.ASKPASS_TOKEN_ENV,
+                request.readToken() == null ? "" : request.readToken());
 
             String refspec = "refs/heads/" + request.targetBranch()
                 + ":refs/remotes/origin/" + request.targetBranch();

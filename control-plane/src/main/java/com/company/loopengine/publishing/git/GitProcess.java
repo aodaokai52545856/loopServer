@@ -4,12 +4,15 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 
@@ -17,8 +20,27 @@ import java.util.logging.Logger;
  * Runs Git via argument vectors only — never through a shell.
  */
 public final class GitProcess {
+    /**
+     * Process-local env var holding the robot read token for the ephemeral ASKPASS helper.
+     * The token is never written into the ASKPASS script body.
+     */
+    public static final String ASKPASS_TOKEN_ENV = "LOOP_ENGINE_GIT_ASKPASS_TOKEN";
+
     private static final Logger LOG = Logger.getLogger(GitProcess.class.getName());
     private static final Duration DEFAULT_TIMEOUT = Duration.ofMinutes(10);
+
+    /**
+     * Fixed POSIX askpass program. Prints the token from {@link #ASKPASS_TOKEN_ENV} only.
+     * Compatible with Linux/macOS {@code execve} shebang and with Git for Windows when {@code sh}
+     * can interpret the script; the script never embeds credential bytes.
+     */
+    private static final String ASKPASS_SCRIPT = """
+        #!/bin/sh
+        # Ephemeral GIT_ASKPASS for Loop Engine Publisher.
+        # Credential bytes arrive only via LOOP_ENGINE_GIT_ASKPASS_TOKEN in the process
+        # environment of the git fetch child — never via this file's contents.
+        printf '%s\\n' "${LOOP_ENGINE_GIT_ASKPASS_TOKEN-}"
+        """;
 
     private final String gitExecutable;
     private final Duration timeout;
@@ -74,23 +96,35 @@ public final class GitProcess {
         }
     }
 
-    public Path writeAskPass(Path workDir, String token) {
+    /**
+     * Creates an ephemeral POSIX {@code GIT_ASKPASS} helper under {@code workDir}.
+     * Callers must pass the read token only through {@link #ASKPASS_TOKEN_ENV} on the fetch
+     * process environment and delete this file immediately after fetch.
+     */
+    public Path writeAskPass(Path workDir) {
+        Objects.requireNonNull(workDir, "workDir");
         try {
-            Path script = Files.createTempFile(workDir, "askpass-", ".cmd");
-            String body = token == null ? "" : token.replace("\r", "").replace("\n", "");
-            // Minimal Windows askpass helper; deleted immediately after fetch.
-            Files.writeString(
-                script,
-                "@echo off\r\necho " + body + "\r\n",
-                StandardCharsets.UTF_8);
-            try {
-                script.toFile().setExecutable(true);
-            } catch (SecurityException ignored) {
-                // best-effort on platforms that ignore the bit
-            }
+            Path script = Files.createTempFile(workDir, "askpass-", ".sh");
+            Files.writeString(script, ASKPASS_SCRIPT, StandardCharsets.UTF_8);
+            makeExecutable(script);
             return script;
         } catch (IOException ex) {
             throw new GitProcessException("GIT_ASKPASS_FAILED: " + ex.getMessage(), ex);
+        }
+    }
+
+    static void makeExecutable(Path script) throws IOException {
+        try {
+            Set<PosixFilePermission> perms = EnumSet.of(
+                PosixFilePermission.OWNER_READ,
+                PosixFilePermission.OWNER_WRITE,
+                PosixFilePermission.OWNER_EXECUTE);
+            Files.setPosixFilePermissions(script, perms);
+        } catch (UnsupportedOperationException ignored) {
+            // Windows / non-POSIX: fall back to File#setExecutable.
+            if (!script.toFile().setExecutable(true, true)) {
+                script.toFile().setExecutable(true);
+            }
         }
     }
 
