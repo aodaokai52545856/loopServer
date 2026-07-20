@@ -1,10 +1,12 @@
 package com.company.loopengine.shared.api;
 
+import com.company.loopengine.node.application.NodeHeartbeatService;
 import com.company.loopengine.shared.web.CorrelationIdFilter;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -18,6 +20,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @Import({ApiExceptionHandler.class, CorrelationIdFilter.class, ApiExceptionHandlerTest.TestErrorController.class})
 class ApiExceptionHandlerTest {
     @Autowired MockMvc mvc;
+    /** Satisfies DeviceCertificateFilter constructor when WebMvcTest picks up the @Component filter. */
+    @MockitoBean NodeHeartbeatService nodeHeartbeatService;
 
     @Test
     void returnsProblemDetailWithRequestId() throws Exception {
