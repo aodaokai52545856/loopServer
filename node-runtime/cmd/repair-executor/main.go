@@ -10,7 +10,9 @@ import (
 	"strings"
 	"sync"
 
+	"company.internal/loop-engine/node-runtime/internal/agent"
 	"company.internal/loop-engine/node-runtime/internal/artifact"
+	"company.internal/loop-engine/node-runtime/internal/credentials"
 	"company.internal/loop-engine/node-runtime/internal/executor"
 	"company.internal/loop-engine/node-runtime/internal/opencode"
 	"company.internal/loop-engine/node-runtime/internal/version"
@@ -46,12 +48,14 @@ func runExecute(args []string) int {
 	if out == "" {
 		out = *workspace + string(os.PathSeparator) + "out"
 	}
-	agent := opencode.NewCLI(osRunner{}, *binary)
-	result := executor.NewRun(agent, executor.ProcessValidator{}, artifact.NewBuilder()).Execute(context.Background(), executor.RunTask{
+	agentEnv := credentials.FilterAgentEnvList(os.Environ())
+	cli := opencode.NewCLI(osRunner{}, *binary)
+	result := executor.NewRun(cli, executor.ProcessValidator{}, artifact.NewBuilder()).Execute(context.Background(), executor.RunTask{
 		Workspace:       *workspace,
 		OutDir:          out,
 		Prompt:          *prompt,
 		MaxRepairRounds: *maxRounds,
+		Policy:          agent.Policy{Environment: agentEnv},
 		ValidationCommands: []executor.ValidationCommand{{
 			Program:        *program,
 			Args:           append([]string(nil), valArgs...),
@@ -81,9 +85,9 @@ type osRunner struct{}
 
 func (osRunner) Start(ctx context.Context, binary string, args []string, env map[string]string) (opencode.Process, error) {
 	cmd := exec.CommandContext(ctx, binary, args...)
-	if len(env) > 0 {
-		cmd.Env = envMapToSlice(env)
-	}
+	// Always set Env from the already-filtered map. A nil/empty Env must not
+	// fall back to inheriting CI_JOB_TOKEN / GitLab / task credentials.
+	cmd.Env = envMapToSlice(env)
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err

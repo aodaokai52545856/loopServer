@@ -77,6 +77,11 @@ type GitRunner interface {
 	DiffCheck(ctx context.Context, workspace string) error
 }
 
+// gitlinkInspector reports index paths recorded as gitlinks (mode 160000).
+type gitlinkInspector interface {
+	GitlinkPaths(ctx context.Context, workspace string) (map[string]struct{}, error)
+}
+
 // AttemptRun orchestrates agent sessions, validation feedback and Artifact emission.
 type AttemptRun struct {
 	agent     agent.Agent
@@ -187,17 +192,15 @@ func (r *AttemptRun) finishSuccess(ctx context.Context, task RunTask, started ti
 	if len(changed) == 0 {
 		return failResult("NO_DIFF", started, task, validations, fmt.Errorf("no diff"))
 	}
-	for _, cf := range changed {
-		if cf.Status == "submodule" {
-			return failResult("SUBMODULE_CHANGE", started, task, validations, fmt.Errorf("submodule changes forbidden"))
-		}
-	}
 	if err := git.DiffCheck(ctx, task.Workspace); err != nil {
 		return failResult("DIFF_CHECK_FAILED", started, task, validations, err)
 	}
 	patch, err := git.DiffBinary(ctx, task.Workspace)
 	if err != nil {
 		return failResult("GIT_DIFF_FAILED", started, task, validations, err)
+	}
+	if err := rejectSubmoduleChanges(ctx, git, task.Workspace, changed, patch); err != nil {
+		return failResult("SUBMODULE_CHANGE", started, task, validations, err)
 	}
 	finished := time.Now().UTC()
 	manifest, err := r.builder.BuildSuccess(artifact.BuildInput{
@@ -424,6 +427,83 @@ func (WorkspaceGit) DiffCheck(ctx context.Context, workspace string) error {
 	return nil
 }
 
+// GitlinkPaths returns index paths with mode 160000 (git submodule / gitlink).
+func (WorkspaceGit) GitlinkPaths(ctx context.Context, workspace string) (map[string]struct{}, error) {
+	raw, err := runGitOutput(ctx, workspace, []string{"ls-files", "-s", "-z"})
+	if err != nil {
+		return nil, err
+	}
+	return parseGitlinkPaths(raw), nil
+}
+
+func parseGitlinkPaths(raw []byte) map[string]struct{} {
+	out := make(map[string]struct{})
+	if len(raw) == 0 {
+		return out
+	}
+	for _, entry := range strings.Split(string(raw), "\x00") {
+		if entry == "" {
+			continue
+		}
+		// <mode> <object> <stage>\t<path>
+		mode, path, ok := splitStageEntry(entry)
+		if !ok {
+			continue
+		}
+		if mode == "160000" {
+			out[filepath.ToSlash(path)] = struct{}{}
+		}
+	}
+	return out
+}
+
+func splitStageEntry(entry string) (mode, path string, ok bool) {
+	parts := strings.SplitN(entry, "\t", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	fields := strings.Fields(parts[0])
+	if len(fields) < 1 {
+		return "", "", false
+	}
+	return fields[0], parts[1], true
+}
+
+func rejectSubmoduleChanges(ctx context.Context, git GitRunner, workspace string, changed []artifact.ChangedFile, patch []byte) error {
+	for _, cf := range changed {
+		if cf.Status == "submodule" || isGitmodulesPath(cf.Path) {
+			return fmt.Errorf("submodule changes forbidden: %s", cf.Path)
+		}
+	}
+	if patchIndicatesGitlink(patch) {
+		return fmt.Errorf("submodule changes forbidden: gitlink in patch")
+	}
+	if insp, ok := git.(gitlinkInspector); ok {
+		links, err := insp.GitlinkPaths(ctx, workspace)
+		if err != nil {
+			return err
+		}
+		for _, cf := range changed {
+			if _, hit := links[cf.Path]; hit {
+				return fmt.Errorf("submodule changes forbidden: gitlink %s", cf.Path)
+			}
+		}
+	}
+	return nil
+}
+
+func isGitmodulesPath(path string) bool {
+	return filepath.Base(path) == ".gitmodules"
+}
+
+func patchIndicatesGitlink(patch []byte) bool {
+	if len(patch) == 0 {
+		return false
+	}
+	s := string(patch)
+	return strings.Contains(s, "mode 160000") || strings.Contains(s, "Subproject commit")
+}
+
 func runGitOutput(ctx context.Context, workspace string, args []string) ([]byte, error) {
 	stdoutPath := filepath.Join(os.TempDir(), fmt.Sprintf("repair-git-stdout-%d", time.Now().UnixNano()))
 	stderrPath := filepath.Join(os.TempDir(), fmt.Sprintf("repair-git-stderr-%d", time.Now().UnixNano()))
@@ -481,10 +561,8 @@ func parseStatusPorcelain(raw []byte) ([]artifact.ChangedFile, error) {
 			status = "deleted"
 		case xy[0] == 'R' || xy[1] == 'R':
 			status = "renamed"
-		case strings.HasPrefix(path, "gitmodules") || xy == "M ":
-			// mode 160000 submodule changes appear as modified gitlink; callers may mark submodule.
 		}
-		if looksLikeSubmodule(xy, path) {
+		if looksLikeSubmodule(path) {
 			status = "submodule"
 		}
 		out = append(out, artifact.ChangedFile{Path: filepath.ToSlash(path), Status: status})
@@ -492,8 +570,6 @@ func parseStatusPorcelain(raw []byte) ([]artifact.ChangedFile, error) {
 	return out, nil
 }
 
-func looksLikeSubmodule(xy, path string) bool {
-	_ = xy
-	base := filepath.Base(path)
-	return base == ".gitmodules"
+func looksLikeSubmodule(path string) bool {
+	return isGitmodulesPath(path)
 }

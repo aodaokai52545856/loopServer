@@ -99,3 +99,76 @@ func taskWithMaxRounds(n int, workspace, outDir string) RunTask {
 		},
 	}
 }
+
+func TestSubmoduleGitlinkIsRejected(t *testing.T) {
+	workspace := t.TempDir()
+	outDir := filepath.Join(workspace, "out")
+	agent := &fakeAgent{results: []agent.Result{{Success: true}}}
+	validator := &fakeValidator{results: []Validation{{ExitCode: 0}}}
+	git := &fakeGit{
+		status: []byte("M  vendor/lib\x00"),
+		patch:  []byte("diff --git a/vendor/lib b/vendor/lib\nindex 123..456 160000\n--- a/vendor/lib\n+++ b/vendor/lib\n@@ -1 +1 @@\n-Subproject commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n+Subproject commit bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"),
+		gitlinks: map[string]struct{}{"vendor/lib": {}},
+	}
+	result := NewRun(agent, validator, artifact.NewBuilder()).Execute(context.Background(), RunTask{
+		MaxRepairRounds:    0, // normalize to default 2, but validation passes first round
+		Workspace:          workspace,
+		OutDir:             outDir,
+		ValidationCommands: []ValidationCommand{{Program: "true", TimeoutSeconds: 5}},
+		Git:                git,
+	})
+	// MaxRepairRounds 0 becomes default 2; validation passes on first try so finishSuccess runs.
+	if result.Code != "SUBMODULE_CHANGE" {
+		t.Fatalf("code = %s, err=%v", result.Code, result.Err)
+	}
+	if _, err := os.Stat(artifact.PatchPath(outDir)); !os.IsNotExist(err) {
+		t.Fatalf("submodule rejection must not leave change.patch: %v", err)
+	}
+}
+
+func TestGitmodulesPathIsRejected(t *testing.T) {
+	workspace := t.TempDir()
+	outDir := filepath.Join(workspace, "out")
+	agent := &fakeAgent{results: []agent.Result{{Success: true}}}
+	validator := &fakeValidator{results: []Validation{{ExitCode: 0}}}
+	git := &fakeGit{
+		status: []byte("M  .gitmodules\x00"),
+		patch:  []byte("diff --git a/.gitmodules b/.gitmodules\n"),
+	}
+	result := NewRun(agent, validator, artifact.NewBuilder()).Execute(context.Background(), RunTask{
+		Workspace:          workspace,
+		OutDir:             outDir,
+		ValidationCommands: []ValidationCommand{{Program: "true", TimeoutSeconds: 5}},
+		Git:                git,
+	})
+	if result.Code != "SUBMODULE_CHANGE" {
+		t.Fatalf("code = %s", result.Code)
+	}
+}
+
+func TestParseGitlinkPaths(t *testing.T) {
+	raw := []byte("160000 abcdef0123456789abcdef0123456789abcdef0 0\tvendor/lib\x00100644 abcdef0123456789abcdef0123456789abcdef1 0\tsrc/A.java\x00")
+	got := parseGitlinkPaths(raw)
+	if _, ok := got["vendor/lib"]; !ok {
+		t.Fatalf("expected vendor/lib gitlink, got %#v", got)
+	}
+	if _, ok := got["src/A.java"]; ok {
+		t.Fatalf("regular file must not be gitlink")
+	}
+}
+
+type fakeGit struct {
+	status   []byte
+	patch    []byte
+	gitlinks map[string]struct{}
+}
+
+func (f *fakeGit) StatusPorcelain(context.Context, string) ([]byte, error) { return f.status, nil }
+func (f *fakeGit) DiffBinary(context.Context, string) ([]byte, error)      { return f.patch, nil }
+func (f *fakeGit) DiffCheck(context.Context, string) error                 { return nil }
+func (f *fakeGit) GitlinkPaths(context.Context, string) (map[string]struct{}, error) {
+	if f.gitlinks == nil {
+		return map[string]struct{}{}, nil
+	}
+	return f.gitlinks, nil
+}
