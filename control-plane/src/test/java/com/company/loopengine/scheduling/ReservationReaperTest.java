@@ -151,6 +151,51 @@ class ReservationReaperTest {
             .single()).isEqualTo("RESERVED");
     }
 
+    @Test
+    void doesNotReleaseSuccessfulPipelineBackToQueued() {
+        gitlab.stubFor(get(urlEqualTo("/api/v4/projects/" + CENTRAL_PROJECT_ID + "/pipelines/777"))
+            .willReturn(okJson("{\"id\":777,\"status\":\"success\"}")));
+        gitlab.stubFor(get(urlEqualTo("/api/v4/projects/" + CENTRAL_PROJECT_ID + "/pipelines/777/jobs"))
+            .willReturn(okJson("[{\"id\":1,\"status\":\"success\"}]")));
+
+        reaper.reap();
+
+        assertThat(jdbc.sql("select state from task_reservation where id = :id")
+            .param("id", reservationId)
+            .query(String.class)
+            .single()).isEqualTo("ACTIVE");
+        assertThat(jdbc.sql("select state from repair_task where id = :id")
+            .param("id", taskId)
+            .query(String.class)
+            .single()).isEqualTo("RESERVED");
+        assertThat(jdbc.sql("select active_slots from repair_node where id = :id")
+            .param("id", nodeId)
+            .query(Integer.class)
+            .single()).isEqualTo(1);
+    }
+
+    @Test
+    void marksExpiryPendingWhenPipelineIdMissing() {
+        jdbc.sql("update task_reservation set pipeline_id = null where id = :id")
+            .param("id", reservationId)
+            .update();
+
+        reaper.reap();
+
+        assertThat(jdbc.sql("select state from task_reservation where id = :id")
+            .param("id", reservationId)
+            .query(String.class)
+            .single()).isEqualTo("EXPIRY_PENDING");
+        assertThat(jdbc.sql("select state from repair_task where id = :id")
+            .param("id", taskId)
+            .query(String.class)
+            .single()).isEqualTo("RESERVED");
+        assertThat(jdbc.sql("select active_slots from repair_node where id = :id")
+            .param("id", nodeId)
+            .query(Integer.class)
+            .single()).isEqualTo(1);
+    }
+
     private UUID insertNode(int activeSlots) {
         UUID id = UUID.randomUUID();
         jdbc.sql("""

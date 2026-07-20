@@ -28,8 +28,8 @@ public class ReservationReaper {
     private static final Set<String> CANCELABLE = Set.of(
         "created", "waiting_for_resource", "preparing", "pending", "scheduled", "manual");
     private static final Set<String> RUNNING = Set.of("running", "canceling");
-    private static final Set<String> RELEASABLE = Set.of(
-        "canceled", "cancelled", "failed", "skipped", "success");
+    /** Only confirmed cancelled/failed (or missing via 404) may release capacity. */
+    private static final Set<String> RELEASABLE = Set.of("canceled", "cancelled", "failed");
 
     private final JdbcClient jdbc;
     private final TransactionTemplate transactions;
@@ -78,8 +78,9 @@ public class ReservationReaper {
     }
 
     private void reapOne(ExpiredReservation reservation, Instant now) {
+        // Trigger may have succeeded while pipeline_id persist failed — do not free the slot.
         if (reservation.pipelineId() == null) {
-            release(reservation, now);
+            markExpiryPending(reservation.id());
             return;
         }
 
@@ -92,7 +93,7 @@ public class ReservationReaper {
             markExpiryPending(reservation.id());
             return;
         } catch (PipelineTerminalException ex) {
-            // Missing pipeline may release capacity.
+            // Confirmed missing pipeline may release capacity.
             if (ex.getMessage() != null && ex.getMessage().contains("404")) {
                 release(reservation, now);
             } else {
@@ -121,7 +122,8 @@ public class ReservationReaper {
             }
         }
 
-        if (RELEASABLE.contains(status) || "canceled".equals(status) || "cancelled".equals(status)) {
+        // success/skipped must not re-queue; only cancelled/failed release the slot.
+        if (RELEASABLE.contains(status)) {
             release(reservation, now);
         }
     }
