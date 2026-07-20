@@ -23,7 +23,11 @@ const nodeFixture = {
   lastError: null,
   recentAttempts: [],
   runnerState: 'online',
-  resources: { cpuPercent: 12, memoryAvailableBytes: 8, diskAvailableBytes: 100 },
+  resources: {
+    cpuPercent: 12,
+    memoryAvailableBytes: 8589934592,
+    diskAvailableBytes: 53687091200,
+  },
 }
 
 async function mountWithRouter(component: object, path: string) {
@@ -71,9 +75,22 @@ it('shows ownership, capabilities, slots, revisions and latest health', async ()
   const { default: NodeDetailView } = await import('./NodeDetailView.vue')
   const wrapper = await mountWithRouter(NodeDetailView, '/nodes/n1')
   await flushPromises()
-  for (const text of ['Alice', 'macOS arm64', 'OpenCode', '1 / 4', '配置 7 / 已应用 7', '15 秒前']) {
+  for (const text of [
+    'Alice',
+    'macOS arm64',
+    'OpenCode',
+    '1 / 4',
+    '配置 7 / 已应用 7',
+    '15 秒前',
+    'CPU 12%',
+    '内存',
+    '磁盘',
+  ]) {
     expect(wrapper.text()).toContain(text)
   }
+  expect(wrapper.get('[data-test="cpu"]').text()).toContain('CPU 12%')
+  expect(wrapper.get('[data-test="memory"]').text()).toContain('内存')
+  expect(wrapper.get('[data-test="disk"]').text()).toContain('磁盘')
 })
 
 it('requires confirmation before drain', async () => {

@@ -5,6 +5,12 @@ import CreateInviteDialog from './CreateInviteDialog.vue'
 
 type Session = { roles?: string[] }
 
+type NodeResources = {
+  cpuPercent?: number
+  memoryAvailableBytes?: number
+  diskAvailableBytes?: number
+}
+
 type NodeDetail = {
   id: string
   name: string
@@ -21,6 +27,7 @@ type NodeDetail = {
   lastHeartbeatAt?: string | null
   lastError?: string | null
   runnerState?: string
+  resources?: NodeResources | null
   recentAttempts?: Array<{ id: string; state: string }>
 }
 
@@ -77,6 +84,37 @@ const allowedProjects = computed(() => {
     return []
   }
 })
+
+const resourceLabels = computed(() => {
+  const resources = node.value?.resources
+  if (!resources) {
+    return null
+  }
+  return {
+    cpu: resources.cpuPercent == null ? null : `CPU ${resources.cpuPercent}%`,
+    memory:
+      resources.memoryAvailableBytes == null
+        ? null
+        : `内存 ${formatBytes(resources.memoryAvailableBytes)}`,
+    disk:
+      resources.diskAvailableBytes == null
+        ? null
+        : `磁盘 ${formatBytes(resources.diskAvailableBytes)}`,
+  }
+})
+
+function formatBytes(value: number): string {
+  if (value < 1024) {
+    return `${value} B`
+  }
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(1)} KiB`
+  }
+  if (value < 1024 * 1024 * 1024) {
+    return `${(value / (1024 * 1024)).toFixed(1)} MiB`
+  }
+  return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GiB`
+}
 
 onMounted(async () => {
   try {
@@ -155,6 +193,9 @@ async function onDrainClick() {
       <p>{{ slotsLabel }}</p>
       <p>{{ revisionLabel }}</p>
       <p>{{ heartbeatAge }}</p>
+      <p v-if="resourceLabels?.cpu" data-test="cpu">{{ resourceLabels.cpu }}</p>
+      <p v-if="resourceLabels?.memory" data-test="memory">{{ resourceLabels.memory }}</p>
+      <p v-if="resourceLabels?.disk" data-test="disk">{{ resourceLabels.disk }}</p>
       <p>状态：{{ node.state }} / Runner {{ node.runnerState || 'unknown' }}</p>
       <p>白名单：{{ allowedProjects.join(', ') || '无' }}</p>
       <p v-if="node.lastError">最近错误：{{ node.lastError }}</p>

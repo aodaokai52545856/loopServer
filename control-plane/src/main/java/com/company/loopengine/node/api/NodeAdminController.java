@@ -76,7 +76,7 @@ public class NodeAdminController {
             @RequestBody(required = false) JsonNode body,
             HttpServletRequest request) {
         JsonNode payload = body == null || body.isNull() ? jsonMapper.createObjectNode() : body;
-        String reason = optionalReason(payload);
+        String reason = requireReason(payload);
         Instant expiresAt = parseExpiresAt(payload);
         List<String> projects = parseProjects(payload);
         String requestId = requestId(request);
@@ -266,7 +266,7 @@ public class NodeAdminController {
             boolean disable,
             Integer concurrencyOverride) {
         JsonNode payload = body == null || body.isNull() ? jsonMapper.createObjectNode() : body;
-        String reason = optionalReason(payload);
+        String reason = requireReason(payload);
         String requestId = requestId(request);
         Map<String, Object> result = transactions.execute(status -> {
             NodeRow node = requireNode(nodeId);
@@ -434,19 +434,11 @@ public class NodeAdminController {
     }
 
     private static String requireReason(JsonNode body) {
-        String reason = body.path("reason").asString("").trim();
-        if (reason.length() < REASON_MIN || reason.length() > REASON_MAX) {
+        if (body == null || body.isNull()) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST, "reason must be 10-500 characters");
         }
-        return reason;
-    }
-
-    private static String optionalReason(JsonNode body) {
         String reason = body.path("reason").asString("").trim();
-        if (reason.isEmpty()) {
-            return "authorized administrative action";
-        }
         if (reason.length() < REASON_MIN || reason.length() > REASON_MAX) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST, "reason must be 10-500 characters");

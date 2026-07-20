@@ -38,11 +38,15 @@ async function createInvite() {
   }
 }
 
-function closeDialog() {
-  if (oneTime.value) {
-    closedSummary.value = { id: oneTime.value.id, status: 'CREATED' }
+function closeOneTimeSecret() {
+  if (!oneTime.value) {
+    return
   }
+  closedSummary.value = { id: oneTime.value.id, status: 'CREATED' }
   oneTime.value = null
+}
+
+function dismiss() {
   emit('close')
 }
 </script>
@@ -61,17 +65,18 @@ function closeDialog() {
         <input v-model="allowedProjects" />
       </label>
       <button data-test="create-invite" type="button" @click="createInvite">创建</button>
-      <button type="button" @click="closeDialog">取消</button>
+      <button type="button" @click="dismiss">取消</button>
     </template>
     <template v-else-if="oneTime">
       <p data-test="invite-code">邀请码（仅显示一次）：{{ oneTime.code }}</p>
       <p>过期时间：{{ oneTime.expiresAt }}</p>
       <p data-test="join-command">{{ oneTime.joinCommand }}</p>
-      <button data-test="close-invite" type="button" @click="closeDialog">关闭</button>
+      <button data-test="close-invite" type="button" @click="closeOneTimeSecret">关闭</button>
     </template>
     <template v-else-if="closedSummary">
-      <p>邀请 ID：{{ closedSummary.id }}</p>
-      <p>状态：{{ closedSummary.status }}</p>
+      <p data-test="invite-id">邀请 ID：{{ closedSummary.id }}</p>
+      <p data-test="invite-status">状态：{{ closedSummary.status }}</p>
+      <button data-test="dismiss-invite" type="button" @click="dismiss">完成</button>
     </template>
   </div>
 </template>

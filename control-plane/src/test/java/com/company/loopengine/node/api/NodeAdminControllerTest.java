@@ -120,6 +120,23 @@ class NodeAdminControllerTest {
     }
 
     @Test
+    void mutationsRejectMissingReason() throws Exception {
+        mvc.perform(post("/api/admin/node-invites")
+                        .with(user("admin").roles("ADMIN"))
+                        .with(csrf())
+                        .contentType(APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
+
+        mvc.perform(post("/api/nodes/{id}/drain", ownedNodeId)
+                        .with(user("admin").roles("ADMIN"))
+                        .with(csrf())
+                        .contentType(APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
     void drainRequiresOwnershipAndWritesAudit() throws Exception {
         mvc.perform(post("/api/nodes/{id}/drain", ownedNodeId)
                         .with(user("user-NODE_OWNER").roles("NODE_OWNER"))
