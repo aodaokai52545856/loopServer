@@ -1,0 +1,27 @@
+groups:
+  - name: loop-engine
+    rules:
+      - alert: LoopEngineNoSchedulableNode
+        expr: sum(loop_tasks_current{state="queued"}) > 0 and sum(loop_nodes{state=~"online|busy"}) == 0
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Queued Loop Engine tasks have no schedulable nodes
+          description: At least one task is queued while no nodes are online or busy.
+      - alert: LoopEngineOutboxBacklog
+        expr: sum(loop_outbox_events_total{result="pending"}) > 100
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: Loop Engine Outbox backlog is high
+          description: More than 100 pending Outbox events for 15 minutes.
+      - alert: LoopEngineHighAttemptFailure
+        expr: sum(rate(loop_attempt_duration_seconds_count{outcome!="succeeded"}[30m])) / clamp_min(sum(rate(loop_attempt_duration_seconds_count[30m])), 1) > 0.5
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: Loop Engine attempt failure rate is high
+          description: More than half of attempts failed over a 30 minute window.
