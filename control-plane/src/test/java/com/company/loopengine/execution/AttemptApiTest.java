@@ -230,7 +230,21 @@ class AttemptApiTest {
             .willReturn(aResponse()
                 .withStatus(200)
                 .withHeader("Content-Type", "image/png")
-                .withBody("changed-bytes")));
+                .withBody("wrong")));
+
+        mvc.perform(get("/api/node/v1/attempts/" + bootstrap.attemptId() + "/attachments/" + attachmentId)
+                .with(deviceCert(nodeCert))
+                .header("Authorization", "Bearer " + bootstrap.taskToken()))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.detail").value(org.hamcrest.Matchers.containsString("ATTACHMENT_CHANGED")));
+    }
+
+    @Test
+    void rejectsAttachmentStoredSizeMismatch() throws Exception {
+        BootstrapResponse bootstrap = bootstrap(nodeCert, taskId, reservationId, PIPELINE_ID, JOB_ID);
+        jdbc.sql("update defect_attachment set size_bytes = 10 where id = :id")
+            .param("id", attachmentId)
+            .update();
 
         mvc.perform(get("/api/node/v1/attempts/" + bootstrap.attemptId() + "/attachments/" + attachmentId)
                 .with(deviceCert(nodeCert))

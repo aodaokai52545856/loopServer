@@ -3,14 +3,17 @@ package com.company.loopengine.execution;
 import com.company.loopengine.defect.attachment.AttachmentInspector;
 import com.company.loopengine.defect.domain.DefectState;
 import com.company.loopengine.defect.domain.DefectStateMachine;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
@@ -18,13 +21,11 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -125,21 +126,41 @@ public class AttemptService {
                 rs.getString("sha256")))
             .optional()
             .orElseThrow(() -> new InvalidRequestException("unknown attachment"));
-        if (attachment.sha256() == null || attachment.sha256().isBlank()) {
+        if (attachment.sizeBytes() == null
+            || attachment.sha256() == null
+            || attachment.sha256().isBlank()) {
             throw new InvalidRequestException("attachment metadata incomplete");
         }
-        byte[] body = fetchAttachmentBytes(attachment.sourceUrl());
-        String digest = sha256Hex(body);
-        if (!digest.equalsIgnoreCase(attachment.sha256())) {
-            throw new AttachmentChangedException("ATTACHMENT_CHANGED");
+        Path tempFile = null;
+        try {
+            tempFile = Files.createTempFile("loop-attempt-attachment-", ".bin");
+            long size = fetchAttachmentToTempFile(attachment.sourceUrl(), tempFile);
+            if (size > AttachmentInspector.MAX_ATTACHMENT_BYTES) {
+                throw new InvalidRequestException("attachment exceeds 20 MiB");
+            }
+            if (size != attachment.sizeBytes()) {
+                throw new AttachmentChangedException("ATTACHMENT_CHANGED");
+            }
+            String digest = sha256File(tempFile);
+            if (!digest.equalsIgnoreCase(attachment.sha256())) {
+                throw new AttachmentChangedException("ATTACHMENT_CHANGED");
+            }
+            byte[] body = Files.readAllBytes(tempFile);
+            String contentType = attachment.contentType() == null || attachment.contentType().isBlank()
+                ? "application/octet-stream"
+                : attachment.contentType();
+            return new AttachmentContent(contentType, attachment.name(), body);
+        } catch (IOException ex) {
+            throw new IllegalStateException("attachment staging failed", ex);
+        } finally {
+            if (tempFile != null) {
+                try {
+                    Files.deleteIfExists(tempFile);
+                } catch (IOException ignored) {
+                    // best-effort cleanup of the bounded staging file
+                }
+            }
         }
-        if (body.length > AttachmentInspector.MAX_ATTACHMENT_BYTES) {
-            throw new InvalidRequestException("attachment exceeds 20 MiB");
-        }
-        String contentType = attachment.contentType() == null || attachment.contentType().isBlank()
-            ? "application/octet-stream"
-            : attachment.contentType();
-        return new AttachmentContent(contentType, attachment.name(), body);
     }
 
     private BootstrapResult bootstrapInTransaction(
@@ -527,7 +548,7 @@ public class AttemptService {
         }
     }
 
-    private byte[] fetchAttachmentBytes(String sourceUrl) {
+    private long fetchAttachmentToTempFile(String sourceUrl, Path tempFile) {
         try {
             URI initial = URI.create(sourceUrl);
             URI current = initial;
@@ -553,11 +574,11 @@ public class AttemptService {
                     throw new InvalidRequestException("unable to fetch attachment");
                 }
                 try (InputStream body = response.body()) {
-                    return readBounded(body, AttachmentInspector.MAX_ATTACHMENT_BYTES + 1);
+                    return writeBounded(body, tempFile, AttachmentInspector.MAX_ATTACHMENT_BYTES);
                 }
             }
             throw new InvalidRequestException("too many redirects");
-        } catch (InvalidRequestException ex) {
+        } catch (InvalidRequestException | AttachmentChangedException ex) {
             throw ex;
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
@@ -567,19 +588,32 @@ public class AttemptService {
         }
     }
 
-    private static byte[] readBounded(InputStream body, long maxBytes) throws IOException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        byte[] buffer = new byte[8192];
+    private static long writeBounded(InputStream body, Path tempFile, long maxBytes) throws IOException {
         long total = 0L;
-        int read;
-        while ((read = body.read(buffer)) >= 0) {
-            total += read;
-            if (total > maxBytes) {
-                throw new InvalidRequestException("attachment exceeds 20 MiB");
+        byte[] buffer = new byte[8192];
+        try (OutputStream out = Files.newOutputStream(tempFile)) {
+            int read;
+            while ((read = body.read(buffer)) >= 0) {
+                total += read;
+                if (total > maxBytes) {
+                    throw new InvalidRequestException("attachment exceeds 20 MiB");
+                }
+                out.write(buffer, 0, read);
             }
-            out.write(buffer, 0, read);
         }
-        return out.toByteArray();
+        return total;
+    }
+
+    private static String sha256File(Path file) throws IOException {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            try (InputStream in = new DigestInputStream(Files.newInputStream(file), digest)) {
+                in.transferTo(OutputStream.nullOutputStream());
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException ex) {
+            throw new IllegalStateException(ex);
+        }
     }
 
     private static Instant min(Instant left, Instant right) {
