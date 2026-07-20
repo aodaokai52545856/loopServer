@@ -49,12 +49,25 @@ class ObservabilityTest {
     }
 
     @Test
+    void redactsBareGitlabTokenBodiesNotOnlyPrefixes() {
+        assertThat(SecretRedactingConverter.redact("bare glpat-ABCDEF123456 leaked"))
+                .doesNotContain("glpat-")
+                .doesNotContain("ABCDEF123456")
+                .contains("***");
+        assertThat(SecretRedactingConverter.redact("gldt-xyz789 ghp_abcdefghijklmnopqrst"))
+                .doesNotContain("gldt-xyz789")
+                .doesNotContain("ghp_abcdefghijklmnopqrst")
+                .contains("***");
+    }
+
+    @Test
     void redactsSecretValuesInMessagesAndJsonLayout() {
         String raw = "event=auth_probe api_key=sk-secret gitlab_token=glpat-ABCDEF123456"
                 + " password=hunter2 OPENAI_API_KEY=should-not-appear private_key=abc";
         String redacted = SecretRedactingConverter.redact(raw);
         assertThat(redacted)
                 .doesNotContain("glpat-ABCDEF123456")
+                .doesNotContain("ABCDEF123456")
                 .doesNotContain("sk-secret")
                 .doesNotContain("hunter2")
                 .doesNotContain("should-not-appear")

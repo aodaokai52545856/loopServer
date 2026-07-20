@@ -10,7 +10,8 @@ import java.util.regex.Pattern;
 public class SecretRedactingConverter extends ClassicConverter {
 
     private static final Pattern TOKEN_PREFIX = Pattern.compile(
-            "(?i)\\b(glpat-|gldt-|glrt-|gloas-|glcbt-|sk-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9]{20,})");
+            "(?i)\\b(?:(?:glpat-|gldt-|glrt-|gloas-|glcbt-)[A-Za-z0-9_-]+"
+                    + "|sk-[A-Za-z0-9_-]{8,}|ghp_[A-Za-z0-9]{20,})");
 
     private static final Pattern SECRET_KEY_VALUE = Pattern.compile(
             "(?i)([\\\"']?(?:[A-Za-z0-9_.-]*(?:token|secret|password|api[_.?-]?key|private[_.?-]?key)"
