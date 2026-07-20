@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"company.internal/loop-engine/node-runtime/internal/enrollment"
+	"company.internal/loop-engine/node-runtime/internal/runner"
 	"company.internal/loop-engine/node-runtime/internal/version"
 )
 
@@ -14,7 +15,35 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "join" {
 		os.Exit(runJoin(os.Args[2:]))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "doctor" {
+		os.Exit(runDoctor(os.Args[2:]))
+	}
 	os.Exit(version.Command(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func runDoctor(args []string) int {
+	fs := flag.NewFlagSet("doctor", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	stateDir := fs.String("state-dir", "", "local state directory used to locate runner config")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	dir := *stateDir
+	if dir == "" {
+		resolved, err := enrollment.DefaultStateDir()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		dir = resolved
+	}
+	m := runner.NewManager(dir, runner.ExecCommandRunner{}, runner.DefaultService())
+	report := m.Doctor()
+	runner.WriteDoctorReport(os.Stdout, report)
+	if !report.BinaryPresent {
+		return 1
+	}
+	return 0
 }
 
 func runJoin(args []string) int {
