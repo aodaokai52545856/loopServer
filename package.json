@@ -1,0 +1,14 @@
+{
+  "name": "loop-server",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "test:e2e": "playwright test e2e/repair-flow.spec.ts --workers=1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0",
+    "@types/node": "^24.13.2",
+    "typescript": "~5.8.3"
+  }
+}
