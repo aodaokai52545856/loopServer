@@ -7,6 +7,13 @@ server:
     key-store-password: ${LOOP_TLS_KEYSTORE_PASSWORD:}
     trust-store: ${LOOP_DEVICE_CA_TRUSTSTORE:}
     trust-store-password: ${LOOP_DEVICE_CA_TRUSTSTORE_PASSWORD:}
+  servlet:
+    session:
+      timeout: 8h
+      cookie:
+        secure: ${LOOP_SESSION_COOKIE_SECURE:true}
+        http-only: true
+        same-site: lax
 spring:
   application:
     name: loop-engine-control-plane
@@ -16,6 +23,34 @@ spring:
     password: ${LOOP_DB_PASSWORD:loop_engine}
   flyway:
     enabled: true
+  security:
+    oauth2:
+      client:
+        registration:
+          gitlab:
+            client-id: ${LOOP_GITLAB_OAUTH_CLIENT_ID:}
+            client-secret: ${LOOP_GITLAB_OAUTH_CLIENT_SECRET:}
+            authorization-grant-type: authorization_code
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+            scope:
+              - read_user
+              - openid
+              - profile
+              - email
+            provider: gitlab
+        provider:
+          gitlab:
+            authorization-uri: ${LOOP_GITLAB_URL:http://localhost}/oauth/authorize
+            token-uri: ${LOOP_GITLAB_URL:http://localhost}/oauth/token
+            user-info-uri: ${LOOP_GITLAB_URL:http://localhost}/api/v4/user
+            user-name-attribute: id
 management:
   endpoints.web.exposure.include: health,info,prometheus
-loop.gitlab.webhook.token: ${LOOP_GITLAB_WEBHOOK_TOKEN}
+loop:
+  gitlab:
+    url: ${LOOP_GITLAB_URL:http://localhost}
+    webhook.token: ${LOOP_GITLAB_WEBHOOK_TOKEN:}
+  security:
+    enabled: ${LOOP_SECURITY_ENABLED:true}
+    gitlab:
+      admin-group: ${LOOP_GITLAB_ADMIN_GROUP:}
