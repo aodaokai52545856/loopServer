@@ -1,0 +1,4 @@
+{"type":"step_start","timestamp":1710000000000,"sessionID":"ses_success","part":{"id":"prt_1","type":"step-start"}}
+{"type":"text","timestamp":1710000001000,"sessionID":"ses_success","part":{"id":"prt_2","type":"text","text":"I'll inspect the failing test."}}
+{"type":"tool_use","timestamp":1710000002000,"sessionID":"ses_success","part":{"id":"prt_3","callID":"call_1","tool":"read","state":{"status":"completed","title":"read file","output":"ok"}}}
+{"type":"step_finish","timestamp":1710000003000,"sessionID":"ses_success","part":{"id":"prt_4","type":"step-finish","reason":"stop"}}
