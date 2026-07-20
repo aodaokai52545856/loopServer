@@ -14,8 +14,10 @@ import com.company.loopengine.execution.job.RepairJobService.Profile;
 import com.company.loopengine.execution.job.RepairJobService.PublishQueue;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,6 +60,51 @@ class RepairJobServiceTest {
         service.handle(jobHook(203L, "failed", "evt-job-2"));
         assertThat(attempts.get(attempt.id()).state()).isEqualTo(FAILED);
         assertThat(publishQueue.countFor(attempt.id())).isZero();
+        assertThat(attempts.finishedFailedTasks()).contains(attempt.taskId());
+        assertThat(attempts.requeuedTasks()).doesNotContain(attempt.taskId());
+    }
+
+    @Test
+    void canceledWithNullReasonFinishesFailedWithoutRequeue() {
+        Attempt attempt = runningAttempt(204L, 1, profileWithMaxExternalAttempts(2));
+        service.handle(jobHook(204L, "canceled", "evt-job-cancel", null));
+        assertThat(attempts.get(attempt.id()).state()).isEqualTo(FAILED);
+        assertThat(publishQueue.countFor(attempt.id())).isZero();
+        assertThat(attempts.finishedFailedTasks()).contains(attempt.taskId());
+        assertThat(attempts.requeuedTasks()).doesNotContain(attempt.taskId());
+    }
+
+    @Test
+    void timedoutWithNullReasonFinishesFailedWithoutRequeue() {
+        Attempt attempt = runningAttempt(205L, 1, profileWithMaxExternalAttempts(2));
+        service.handle(jobHook(205L, "timedout", "evt-job-timeout", null));
+        assertThat(attempts.get(attempt.id()).state()).isEqualTo(FAILED);
+        assertThat(attempts.finishedFailedTasks()).contains(attempt.taskId());
+        assertThat(attempts.requeuedTasks()).doesNotContain(attempt.taskId());
+    }
+
+    @Test
+    void runnerSystemFailureRequeuesWhenAttemptsRemain() {
+        Attempt attempt = runningAttempt(206L, 1, profileWithMaxExternalAttempts(2));
+        service.handle(jobHook(206L, "failed", "evt-job-infra", "runner_system_failure"));
+        assertThat(attempts.get(attempt.id()).state()).isEqualTo(FAILED);
+        assertThat(attempts.requeuedTasks()).contains(attempt.taskId());
+        assertThat(attempts.excludedNodesFor(attempt.taskId())).contains(attempt.nodeId());
+        assertThat(attempts.finishedFailedTasks()).doesNotContain(attempt.taskId());
+        assertThat(publishQueue.countFor(attempt.id())).isZero();
+    }
+
+    @Test
+    void scriptFailureFinishesFailedUnlessRetryFunctionalFailureEnabled() {
+        Attempt noRetry = runningAttempt(207L, 1, new Profile(2, false));
+        service.handle(jobHook(207L, "failed", "evt-job-script", "script_failure"));
+        assertThat(attempts.finishedFailedTasks()).contains(noRetry.taskId());
+        assertThat(attempts.requeuedTasks()).doesNotContain(noRetry.taskId());
+
+        Attempt withRetry = runningAttempt(208L, 1, new Profile(2, true));
+        service.handle(jobHook(208L, "failed", "evt-job-script-retry", "script_failure"));
+        assertThat(attempts.requeuedTasks()).contains(withRetry.taskId());
+        assertThat(attempts.finishedFailedTasks()).doesNotContain(withRetry.taskId());
     }
 
     @Test
@@ -95,13 +142,17 @@ class RepairJobServiceTest {
     }
 
     private JobHook jobHook(long jobId, String status, String eventUuid) {
+        return jobHook(jobId, status, eventUuid, null);
+    }
+
+    private JobHook jobHook(long jobId, String status, String eventUuid, String failureReason) {
         return new JobHook(
             CENTRAL_PROJECT_ID,
             jobId,
             status,
             eventUuid,
-            null,
-            jobPayload(CENTRAL_PROJECT_ID, jobId, status, null));
+            failureReason,
+            jobPayload(CENTRAL_PROJECT_ID, jobId, status, failureReason));
     }
 
     private static String jobPayload(long projectId, long jobId, String status, String failureReason) {
@@ -114,6 +165,9 @@ class RepairJobServiceTest {
     private static final class InMemoryAttempts implements AttemptStore {
         private final Map<UUID, Attempt> byId = new HashMap<>();
         private final Map<Long, Attempt> byJobId = new HashMap<>();
+        private final Set<UUID> finishedFailed = new HashSet<>();
+        private final Set<UUID> requeued = new HashSet<>();
+        private final Map<UUID, UUID> excludedNodeByTask = new HashMap<>();
 
         void put(Attempt attempt) {
             byId.put(attempt.id(), attempt);
@@ -122,6 +176,19 @@ class RepairJobServiceTest {
 
         Attempt get(UUID id) {
             return byId.get(id);
+        }
+
+        Set<UUID> finishedFailedTasks() {
+            return Set.copyOf(finishedFailed);
+        }
+
+        Set<UUID> requeuedTasks() {
+            return Set.copyOf(requeued);
+        }
+
+        Set<UUID> excludedNodesFor(UUID taskId) {
+            UUID node = excludedNodeByTask.get(taskId);
+            return node == null ? Set.of() : Set.of(node);
         }
 
         @Override
@@ -135,13 +202,14 @@ class RepairJobServiceTest {
         }
 
         @Override
-        public void finishTaskAndDefectFailed(UUID taskId) {
-            // no-op for unit test assertions on attempt/publish
+        public void finishTaskAndDefectFailed(UUID taskId, String eventUuid, String failureReason) {
+            finishedFailed.add(taskId);
         }
 
         @Override
-        public void requeueTask(UUID taskId) {
-            // no-op for unit test assertions on attempt/publish
+        public void requeueTask(UUID taskId, UUID excludeNodeId) {
+            requeued.add(taskId);
+            excludedNodeByTask.put(taskId, excludeNodeId);
         }
 
         @Override

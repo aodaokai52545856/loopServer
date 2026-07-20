@@ -4,6 +4,7 @@ import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -29,6 +30,10 @@ public class RepairJobService {
         "stuck_or_timeout_failure",
         "api_failure",
         "runner_unsupported");
+    private static final Set<String> FUNCTIONAL_FAILURE_REASONS = Set.of(
+        "script_failure",
+        "validation_failure",
+        "opencode_failure");
 
     private final AttemptStore attempts;
     private final PublishQueue publishQueue;
@@ -116,7 +121,7 @@ public class RepairJobService {
             return;
         }
         if (Set.of("failed", "canceled", "cancelled", "timedout").contains(status)) {
-            handleTerminalFailure(attempt, hook.failureReason());
+            handleTerminalFailure(attempt, hook);
         }
     }
 
@@ -128,7 +133,7 @@ public class RepairJobService {
         attempts.update(attempt.withState(ARTIFACT_PENDING));
     }
 
-    private void handleTerminalFailure(Attempt attempt, String failureReason) {
+    private void handleTerminalFailure(Attempt attempt, JobHook hook) {
         if (!RUNNING.equals(attempt.state())) {
             return;
         }
@@ -137,20 +142,37 @@ public class RepairJobService {
         attempts.releaseNodeSlot(attempt.nodeId());
 
         boolean canRetry = attempt.attemptNo() < attempt.profile().maxExternalAttempts();
-        boolean infra = isInfrastructureFailure(failureReason);
-        boolean functionalRetry = attempt.profile().retryFunctionalFailure();
-        if (canRetry && (infra || functionalRetry)) {
-            attempts.requeueTask(attempt.taskId());
+        if (canRetry && shouldRequeue(hook.failureReason(), attempt.profile())) {
+            attempts.requeueTask(attempt.taskId(), attempt.nodeId());
             return;
         }
-        attempts.finishTaskAndDefectFailed(attempt.taskId());
+        attempts.finishTaskAndDefectFailed(attempt.taskId(), hook.eventUuid(), hook.failureReason());
+    }
+
+    /**
+     * Only explicit Runner/system/API/stuck reasons requeue as infrastructure failures.
+     * Script/validation/OpenCode requeue only when {@code retryFunctionalFailure=true}.
+     * Null/blank reasons (typical for canceled/timedout) never auto-requeue.
+     */
+    static boolean shouldRequeue(String failureReason, Profile profile) {
+        if (isInfrastructureFailure(failureReason)) {
+            return true;
+        }
+        return isFunctionalFailure(failureReason) && profile.retryFunctionalFailure();
     }
 
     private static boolean isInfrastructureFailure(String failureReason) {
         if (failureReason == null || failureReason.isBlank()) {
-            return true;
+            return false;
         }
         return INFRA_FAILURE_REASONS.contains(normalize(failureReason));
+    }
+
+    private static boolean isFunctionalFailure(String failureReason) {
+        if (failureReason == null || failureReason.isBlank()) {
+            return false;
+        }
+        return FUNCTIONAL_FAILURE_REASONS.contains(normalize(failureReason));
     }
 
     private static String normalize(String value) {
@@ -194,9 +216,9 @@ public class RepairJobService {
 
         void update(Attempt attempt);
 
-        void finishTaskAndDefectFailed(UUID taskId);
+        void finishTaskAndDefectFailed(UUID taskId, String eventUuid, String failureReason);
 
-        void requeueTask(UUID taskId);
+        void requeueTask(UUID taskId, UUID excludeNodeId);
 
         void releaseNodeSlot(UUID nodeId);
     }
@@ -270,12 +292,16 @@ public class RepairJobService {
         }
 
         @Override
-        public void finishTaskAndDefectFailed(UUID taskId) {
+        public void finishTaskAndDefectFailed(UUID taskId, String eventUuid, String failureReason) {
             Instant now = Instant.now();
-            UUID defectId = jdbc.sql("select defect_id from repair_task where id = :id")
-                .param("id", taskId)
-                .query(UUID.class)
+            var defect = jdbc.sql("select id, state from defect where id = (select defect_id from repair_task where id = :taskId)")
+                .param("taskId", taskId)
+                .query((rs, rowNum) -> Map.entry(
+                    (UUID) rs.getObject("id"),
+                    rs.getString("state")))
                 .single();
+            UUID defectId = defect.getKey();
+            String fromState = defect.getValue();
             jdbc.sql("update repair_task set state = 'FAILED', updated_at = :now where id = :id")
                 .param("now", Timestamp.from(now))
                 .param("id", taskId)
@@ -284,12 +310,47 @@ public class RepairJobService {
                 .param("now", Timestamp.from(now))
                 .param("id", defectId)
                 .update();
+            jdbc.sql("""
+                insert into defect_transition(defect_id, from_state, to_state, reason, source_event_uuid)
+                values (:defectId, :fromState, 'FAILED', :reason, :eventUuid)
+                """)
+                .param("defectId", defectId)
+                .param("fromState", fromState)
+                .param("reason", failureReason == null || failureReason.isBlank()
+                    ? "JOB_TERMINAL_FAILED"
+                    : failureReason)
+                .param("eventUuid", eventUuid)
+                .update();
+            jdbc.sql("""
+                insert into outbox_event(id, aggregate_type, aggregate_id, event_type, payload_json, occurred_at)
+                values (:id, 'DEFECT', :aggregateId, 'GITLAB_ISSUE_FAILED', cast(:payload as jsonb), :occurredAt)
+                on conflict (id) do nothing
+                """)
+                .param("id", UUID.randomUUID())
+                .param("aggregateId", defectId.toString())
+                .param(
+                    "payload",
+                    "{\"defectId\":\"" + defectId + "\",\"taskId\":\"" + taskId
+                        + "\",\"eventUuid\":\"" + eventUuid + "\"}")
+                .param("occurredAt", Timestamp.from(now))
+                .update();
         }
 
         @Override
-        public void requeueTask(UUID taskId) {
+        public void requeueTask(UUID taskId, UUID excludeNodeId) {
             Instant now = Instant.now();
-            jdbc.sql("update repair_task set state = 'QUEUED', updated_at = :now where id = :id")
+            // Prefer any other eligible node on the next schedule: drop sticky request for the failed node.
+            jdbc.sql("""
+                update repair_task
+                set state = 'QUEUED',
+                    requested_node_id = case
+                      when requested_node_id = :excludeNodeId then null
+                      else requested_node_id
+                    end,
+                    updated_at = :now
+                where id = :id
+                """)
+                .param("excludeNodeId", excludeNodeId)
                 .param("now", Timestamp.from(now))
                 .param("id", taskId)
                 .update();
