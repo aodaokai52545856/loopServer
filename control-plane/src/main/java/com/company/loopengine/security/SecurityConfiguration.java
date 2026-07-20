@@ -49,12 +49,14 @@ public class SecurityConfiguration {
     @Order(1)
     SecurityFilterChain nodeApi(HttpSecurity http, DeviceCertificateFilter deviceFilter)
             throws Exception {
+        // DeviceCertificateFilter authenticates via mTLS into ATTR_NODE_ID; it does not
+        // populate SecurityContext, so never require .authenticated() here.
         return http.securityMatcher("/api/node/v1/**")
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/api/node/v1/enroll")
                         .permitAll()
                         .anyRequest()
-                        .authenticated())
+                        .access(deviceAuthenticated()))
                 .addFilterBefore(deviceFilter, AnonymousAuthenticationFilter.class)
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -86,6 +88,9 @@ public class SecurityConfiguration {
         csrfRequestHandler.setCsrfRequestAttributeName("_csrf");
         return http.securityMatcher("/api/**", "/oauth2/**", "/login/**")
                 .authorizeHttpRequests(auth -> auth
+                        // Real enroll path (architecture): invite-code join, not browser OAuth.
+                        .requestMatchers(HttpMethod.POST, "/api/v1/nodes/join")
+                        .permitAll()
                         .requestMatchers("/api/session")
                         .authenticated()
                         .requestMatchers("/api/admin/**")
@@ -100,10 +105,16 @@ public class SecurityConfiguration {
                         userInfo -> userInfo.userService(oauth2UserService)))
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-                        .csrfTokenRequestHandler(csrfRequestHandler))
+                        .csrfTokenRequestHandler(csrfRequestHandler)
+                        .ignoringRequestMatchers("/api/v1/nodes/join"))
                 .exceptionHandling(ex ->
                         ex.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
                 .build();
+    }
+
+    private static AuthorizationManager<RequestAuthorizationContext> deviceAuthenticated() {
+        return (authentication, context) -> new AuthorizationDecision(
+                context.getRequest().getAttribute(DeviceCertificateFilter.ATTR_NODE_ID) != null);
     }
 
     private static AuthorizationManager<RequestAuthorizationContext> projectEditManager(
