@@ -84,10 +84,18 @@ function normalizeTaskDetail(raw: Record<string, unknown>): TaskDetail {
     attachments: Array.isArray(raw.attachments) ? (raw.attachments as TaskDetail['issue']['attachments']) : [],
   }
 
-  const completeness = (raw.completeness as TaskDetail['completeness'] | undefined) ?? {
-    decision: String(raw.completenessDecision ?? '缺失字段判断'),
-    missingFields: parseJsonArray(raw.missingFieldsJson ?? raw.missingFields),
-  }
+  const missingFields = parseJsonArray(raw.missingFieldsJson ?? raw.missingFields)
+  const completeness =
+    (raw.completeness as TaskDetail['completeness'] | undefined) ??
+    ({
+      decision:
+        typeof raw.completenessDecision === 'string'
+          ? raw.completenessDecision
+          : missingFields.length > 0
+            ? '缺失字段判断'
+            : '',
+      missingFields,
+    } satisfies TaskDetail['completeness'])
 
   const profile = (raw.profile as TaskDetail['profile'] | undefined) ?? {
     revision: Number(raw.profileRevision ?? 0),
