@@ -484,8 +484,8 @@ class LoopEngineHarness {
     for (const event of events) {
       this.eventUploadBatches += 1
       if (disconnectMs > 0 && event.seq === 2) {
-        // Simulate a 60s disconnect without wall-clock wait; resume from ack seq.
-        await sleep(25)
+        // Wall-clock disconnect during event upload; resume from ack seq.
+        await sleep(disconnectMs)
       }
       if (!acknowledged.has(event.seq)) {
         acknowledged.add(event.seq)
@@ -522,7 +522,11 @@ class LoopEngineHarness {
     let mr: MergeRequest | undefined
     for (const step of steps) {
       if (faults.crashPublisherAfterBranchPush && step === 'BRANCH_PUSHED') {
-        this.publishAttempts += 1
+        // Publisher stops after branch push; restart publish without the crash flag.
+        return this.publish(projectKey, task, patchSha, {
+          ...faults,
+          crashPublisherAfterBranchPush: false,
+        })
       }
       if (step === 'MR_CREATED') {
         const marker = `<!-- loop-engine:task:${task.taskId} -->`
