@@ -178,16 +178,13 @@ func (r *scriptedRunner) Start(_ context.Context, _ string, args []string, env m
 type staticProcess struct {
 	stdout io.ReadCloser
 	stderr io.ReadCloser
-	once   sync.Once
 }
 
 func (p *staticProcess) Stdout() io.Reader { return p.stdout }
 func (p *staticProcess) Stderr() io.Reader { return p.stderr }
 func (p *staticProcess) Wait() error {
-	p.once.Do(func() {
-		_, _ = io.Copy(io.Discard, p.stdout)
-		_, _ = io.Copy(io.Discard, p.stderr)
-	})
+	// Streams are owned by session.consume (stdout decode + stderr copy).
+	// Do not drain them here or race detector will flag concurrent Reader use.
 	return nil
 }
 func (p *staticProcess) Interrupt() error { return nil }

@@ -1,4 +1,7 @@
-stages: [test, build]
+stages: [test, build, release]
+
+include:
+  - local: .gitlab/ci/node-release.yml
 
 java-test:
   stage: test

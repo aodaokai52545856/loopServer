@@ -39,15 +39,9 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -55,10 +49,6 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -67,7 +57,6 @@ import tools.jackson.databind.json.JsonMapper;
 @Testcontainers
 @SpringBootTest
 @AutoConfigureMockMvc
-@Import(ApiAuthorizationTest.FixtureControllers.class)
 @TestPropertySource(
         properties = {
             "loop.security.enabled=true",
@@ -136,7 +125,9 @@ class ApiAuthorizationTest {
                         .with(user("admin").roles("ADMIN"))
                         .with(csrf())
                         .contentType(APPLICATION_JSON)
-                        .content("{}"))
+                        .content("""
+                            {"reason":"create invite for auth coverage"}
+                            """))
                 .andExpect(status().isCreated());
     }
 
@@ -250,7 +241,10 @@ class ApiAuthorizationTest {
                 }
                 """;
         }
-        return "{}";
+        // Real NodeAdminController requires an audit reason on invite/drain writes.
+        return """
+            {"reason":"authorized mutation for coverage"}
+            """;
     }
 
     private void seedOwnership() {
@@ -360,36 +354,4 @@ class ApiAuthorizationTest {
     }
 
     private record NodeFixture(UUID nodeId, X509Certificate certificate) {}
-
-    @TestConfiguration
-    static class FixtureControllers {
-        @Bean
-        AdminInviteController adminInviteController() {
-            return new AdminInviteController();
-        }
-
-        @Bean
-        NodeDrainController nodeDrainController() {
-            return new NodeDrainController();
-        }
-    }
-
-    @RestController
-    @RequestMapping("/api/admin")
-    static class AdminInviteController {
-        @PostMapping("/node-invites")
-        ResponseEntity<Void> createInvite() {
-            return ResponseEntity.status(HttpStatus.CREATED).build();
-        }
-    }
-
-    @RestController
-    @RequestMapping("/api/nodes")
-    static class NodeDrainController {
-        @PostMapping("/{nodeId}/drain")
-        @PreAuthorize("@projectAuthorization.canDrainNode(authentication, #nodeId)")
-        ResponseEntity<Void> drain(@PathVariable String nodeId) {
-            return ResponseEntity.accepted().build();
-        }
-    }
 }

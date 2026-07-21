@@ -1,0 +1,135 @@
+# Repair-node platform release jobs.
+# Linux/macOS are GA (blocking). Windows amd64 is Beta (allow_failure).
+
+.node-release-template:
+  stage: release
+  image: golang:1.26
+  variables:
+    CGO_ENABLED: "0"
+    GOMODCACHE: $CI_PROJECT_DIR/.cache/go-mod
+  cache:
+    key: go-release
+    paths: [.cache/go-mod/]
+  before_script:
+    - apt-get update -qq && apt-get install -y -qq curl ca-certificates
+  script:
+    - go -C node-runtime test ./...
+    - |
+      set -euo pipefail
+      OUT="dist/${PACKAGE_NAME}"
+      mkdir -p "${OUT}"
+      BIN_NAME="repair-node"
+      EXEC_NAME="repair-executor"
+      if [ "${GOOS}" = "windows" ]; then
+        BIN_NAME="repair-node.exe"
+        EXEC_NAME="repair-executor.exe"
+      fi
+      go -C node-runtime build -trimpath -ldflags="-s -w" -o "../${OUT}/${BIN_NAME}" ./cmd/repair-node
+      go -C node-runtime build -trimpath -ldflags="-s -w" -o "../${OUT}/${EXEC_NAME}" ./cmd/repair-executor
+      printf '%s\n' \
+        '# Sample repair-node configuration (edit before use).' \
+        'server: https://loop-engine.example.internal' \
+        'concurrency: 2' \
+        '# Model credentials stay on the node; never ship GitLab write tokens here.' \
+        > "${OUT}/config.sample.yaml"
+      case "${GOOS}" in
+        linux)
+          printf '%s\n' \
+            '[Unit]' \
+            'Description=Loop Engine repair-node' \
+            'After=network-online.target' \
+            'Wants=network-online.target' \
+            '' \
+            '[Service]' \
+            'Type=simple' \
+            'ExecStart=/usr/local/bin/repair-node' \
+            'Restart=on-failure' \
+            'StateDirectory=repair-node' \
+            '' \
+            '[Install]' \
+            'WantedBy=multi-user.target' \
+            > "${OUT}/repair-node.service"
+          ;;
+        darwin)
+          printf '%s\n' \
+            '<?xml version="1.0" encoding="UTF-8"?>' \
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+            '<plist version="1.0"><dict>' \
+            '<key>Label</key><string>com.company.repair-node</string>' \
+            '<key>ProgramArguments</key><array><string>/usr/local/bin/repair-node</string></array>' \
+            '<key>RunAtLoad</key><true/>' \
+            '<key>KeepAlive</key><true/>' \
+            '</dict></plist>' \
+            > "${OUT}/com.company.repair-node.plist"
+          ;;
+        windows)
+          printf '%s\n' \
+            '# Windows Beta service note' \
+            'Windows packaging is Beta. Prefer an interactive user session for local' \
+            'model tools until Windows Service compatibility is certified. Do not' \
+            'treat a successful cross-build as GA support.' \
+            > "${OUT}/repair-node.service.md"
+          ;;
+      esac
+      printf '%s\n' 'Loop Engine repair-node release package. Copyright Company. All rights reserved.' > "${OUT}/LICENSE"
+      printf '%s\n' "support: ${SUPPORT_LABEL}" > "${OUT}/SUPPORT.txt"
+      tar -C dist -czf "dist/${PACKAGE_NAME}.tar.gz" "${PACKAGE_NAME}"
+      (cd dist && sha256sum "${PACKAGE_NAME}.tar.gz" > "${PACKAGE_NAME}.sha256")
+      # Submit binaries to the company signing service (CI variable SIGNING_SERVICE_URL).
+      if [ -n "${SIGNING_SERVICE_URL:-}" ]; then
+        curl -fsS -X POST \
+          -H "Authorization: Bearer ${SIGNING_SERVICE_TOKEN}" \
+          -F "artifact=@dist/${PACKAGE_NAME}.tar.gz" \
+          -F "checksum=@dist/${PACKAGE_NAME}.sha256" \
+          -F "package=${PACKAGE_NAME}" \
+          "${SIGNING_SERVICE_URL%/}/v1/sign"
+      else
+        echo "SIGNING_SERVICE_URL unset; checksum recorded, signing deferred to release gate"
+      fi
+  artifacts:
+    name: "$PACKAGE_NAME"
+    paths:
+      - "dist/${PACKAGE_NAME}.tar.gz"
+      - "dist/${PACKAGE_NAME}.sha256"
+    expire_in: 30 days
+
+repair-node-linux-amd64:
+  extends: .node-release-template
+  variables:
+    GOOS: linux
+    GOARCH: amd64
+    PACKAGE_NAME: repair-node-linux-amd64
+    SUPPORT_LABEL: ga
+
+repair-node-linux-arm64:
+  extends: .node-release-template
+  variables:
+    GOOS: linux
+    GOARCH: arm64
+    PACKAGE_NAME: repair-node-linux-arm64
+    SUPPORT_LABEL: ga
+
+repair-node-darwin-amd64:
+  extends: .node-release-template
+  variables:
+    GOOS: darwin
+    GOARCH: amd64
+    PACKAGE_NAME: repair-node-darwin-amd64
+    SUPPORT_LABEL: ga
+
+repair-node-darwin-arm64:
+  extends: .node-release-template
+  variables:
+    GOOS: darwin
+    GOARCH: arm64
+    PACKAGE_NAME: repair-node-darwin-arm64
+    SUPPORT_LABEL: ga
+
+repair-node-windows-amd64-beta:
+  extends: .node-release-template
+  allow_failure: true
+  variables:
+    GOOS: windows
+    GOARCH: amd64
+    PACKAGE_NAME: repair-node-windows-amd64-beta
+    SUPPORT_LABEL: beta

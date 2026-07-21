@@ -13,4 +13,13 @@ class RepositoryLayoutTest {
         String ci = Files.readString(Path.of("../.gitlab-ci.yml"));
         assertThat(ci).contains("java-test:", "web-test:", "go-test:", "contract-test:");
     }
+
+    @Test
+    void releasePipelineNamesEverySupportedArtifact() throws Exception {
+        String ci = Files.readString(Path.of("../.gitlab/ci/node-release.yml"));
+        assertThat(ci).contains(
+            "repair-node-linux-amd64", "repair-node-linux-arm64",
+            "repair-node-darwin-amd64", "repair-node-darwin-arm64",
+            "repair-node-windows-amd64-beta");
+    }
 }
